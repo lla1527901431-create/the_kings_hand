@@ -205,15 +205,46 @@ cd ~/kings-hand/certs
 sudo ln -sf live/你的域名/fullchain.pem fullchain.pem
 sudo ln -sf live/你的域名/privkey.pem privkey.pem
 
+# ⚠️ 关键一步：修权限，否则容器里的 nginx 读不到证书、启动直接失败
+#    certbot 默认把私钥设成 600、目录 700，只有 root 能读；
+#    容器里的 nginx 进程不是 root，会报
+#      "cannot load certificate ... Permission denied"
+#
+#    做法：把属组改成 nginx 容器用的组 id（101 = nginx 用户组），给组读权限。
+sudo chgrp -R 101 ~/kings-hand/certs/live ~/kings-hand/certs/archive
+sudo chmod 750 ~/kings-hand/certs/live ~/kings-hand/certs/archive
+sudo chmod 640 ~/kings-hand/certs/archive/你的域名/*.pem
+sudo chmod 644 ~/kings-hand/certs/live/你的域名/*.pem
+
+# 验证：能打印出证书第一行，就说明 nginx 容器读得到了
+sudo docker run --rm -v ~/kings-hand/certs:/etc/nginx/certs:ro nginx:1.27-alpine \
+  cat /etc/nginx/certs/fullchain.pem | head -1
+
 # 收尾：删掉临时 nginx
 sudo docker rm -f tmp-nginx
 ```
 
-> **证书会自动过期（90 天）**，需要定期续期。可以在服务器 crontab 里加一条：
+> **如果那条 `cat` 报 `Permission denied`**，说明权限还没对。
+> 最省事的兜底是直接把证书复制成普通可读（就不再依赖软链和那个组 id）：
 > ```bash
-> # 每月 1 号凌晨 3 点尝试续期并重载 nginx
-> 0 3 1 * * cd ~/kings-hand && docker run --rm -v ~/kings-hand/certs:/etc/letsencrypt certbot/certbot renew --quiet && docker compose restart nginx
+> sudo cp ~/kings-hand/certs/live/你的域名/fullchain.pem ~/kings-hand/certs/
+> sudo cp ~/kings-hand/certs/live/你的域名/privkey.pem   ~/kings-hand/certs/
+> sudo chmod 644 ~/kings-hand/certs/fullchain.pem
+> sudo chmod 600 ~/kings-hand/certs/privkey.pem
 > ```
+> 但**每次证书续期后都要重新复制一遍**（用软链则不用）。
+
+> **证书 90 天过期，需要自动续期**。在服务器 crontab 里加：
+> ```bash
+> # 每月 1 号凌晨 3 点尝试续期；成功后重载 nginx 让新证书生效
+> 0 3 1 * * cd ~/kings-hand && docker run --rm -v ~/kings-hand/certs:/etc/letsencrypt certbot/certbot renew --quiet --deploy-hook "docker compose exec -T nginx nginx -s reload"
+> ```
+> ⚠️ **`--deploy-hook ... nginx -s reload` 不能省**：
+> 续期只是换了磁盘上的文件，nginx **不会自动重新加载**。
+> 不加这一步，文件是新的、nginx 内存里还是旧证书，浏览器会报过期。
+
+> **证书会自动过期（90 天）**，需要定期续期 —— 具体命令见上面 5.3 节末尾的 crontab 说明
+> （关键是 `--deploy-hook ... nginx -s reload`，少了它续期不会生效）。
 
 ---
 

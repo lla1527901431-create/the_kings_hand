@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 再拷源码
 COPY . .
 
-# 只读挂载不了时也要保证能写（本项目运行时不写本地文件，数据都在 Supabase）
+# 以非 root 用户运行；/app 需要可写（Python 可能生成 __pycache__，
+# 虽然设了 PYTHONDONTWRITEBYTECODE，但保留写权限更稳妥）
 RUN useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser /app
 USER appuser
