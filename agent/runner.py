@@ -23,6 +23,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from agent.date_tools import resolve_date, resolve_datetime
+from agent.history_tools import make_search_history
 from agent.llm import build_llm, build_memory_llm
 from agent.weather_openmeteo import get_weather_forecast
 from server.logging_config import get_logger
@@ -64,8 +65,12 @@ def emit_tasks(tasks: list[TaskItem]) -> str:
     return f"已捕获 {len(tasks)} 个任务"
 
 
-def build_tools() -> list:
-    return [resolve_date, resolve_datetime, get_weather_forecast, emit_tasks]
+def build_tools(phone: str = "") -> list:
+    """工具清单。传了手机号才挂上"查历史"——工具要按用户隔离。"""
+    tools = [resolve_date, resolve_datetime, get_weather_forecast, emit_tasks]
+    if phone:
+        tools.append(make_search_history(phone))
+    return tools
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +78,7 @@ def build_tools() -> list:
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """你是 The King's Hand，一个日历助手。
 
-今天是 {today}，星期{weekday}。
+现在是 {now}（{today}，星期{weekday}）。
 
 【用户当前的日程】（这是全部数据，不需要再去查询）
 {schedule_text}
@@ -145,66 +150,61 @@ SYSTEM_PROMPT = """你是 The King's Hand，一个日历助手。
    - 往 emit_tasks 里填 start/end 前，先调 resolve_datetime 拿 'YYYY-MM-DD HH:MM'，
      然后**原样照抄**，一个字符都不要自己拼。
    - 没调用过工具就不要填具体时间。
+   - **例外**："两分钟后""马上""半小时后""过一会儿"这类相对时间，
+     直接基于开头那句"现在是 HH:MM"自己加，不要调用工具，
+     也不要声称拿不到当前时间——当前时刻就在提示词第一行。
 
 8. 如果【用户长期记忆】与本轮对话冲突，以本轮对话为准，并提醒用户记忆可能过时。
+
+9. 查历史：需要回顾过去安排时，调用 search_history（无参数，一次返回全部归档摘要）。
+
+   该查：
+   - 时间模糊、可能已有安排："明天下午再开个会"、"下周找个时间聊聊"
+   - 常规行程或路线："今晚回珠海"、"去机场接人"
+   - 出现回指："再"、"又"、"还是"、"照上次"、"老地方"、"跟之前一样"
+   - 用户直接问过去："上次是什么时候"、"我之前去过吗"、"我一般几点出门"
+   - 周期性安排："每周三上课"（查历史确认周期，别造重复条目）
+   - 用户只说事不说时间，需要从历史补全
+   - 用户的说法与事实/偏好冲突，需要核对
+
+   不必查：
+   - 时间明确的新任务："明天下午 3 点开会"
+   - 问天气、问当前日程（上面的日程与待办已经列全）
+   - 纯闲聊
+   - 已经查过一次且返回为空，不要反复调用
+
+   查到历史之后：它是"过去"，不是待办。不要把它当成当前任务列表，
+   也不要把已经做过的事当成新任务重复添加，除非用户明确说要再做一次。
 """
 
 
 # ---------------------------------------------------------------------------
 # 记忆蒸馏
 # ---------------------------------------------------------------------------
-MEMORY_PROMPT = """你是记忆分析助手。请分析下面这轮对话，更新用户的长期记忆。
+MEMORY_PROMPT = """你是记忆分析助手。请分析下面这轮对话，更新用户的长期事实。
 
 【现有事实】
 {old_facts}
-
-【现有观察台账】（每条只记录"某次发生了什么"，不代表结论）
-{old_observations}
-
-【现有偏好】
-{old_prefs}
 
 【本轮对话】
 用户：{user_msg}
 助手：{assistant_msg}
 
-记忆分三块，请分别更新：
-
-━━ facts（用户明确说过的事实）━━
+规则：
 1. 只记录**用户自己说过**的稳定信息：身份、学校、单位、项目、经历等。
 2. 禁止把工具返回的数据当成用户的事实：
-   - 禁止从日程反推规律。例如日程里 9-22 和 9-24 都有"信息论"，**不得**写成
-     "这门课在周二和周四"。日程条目只是记录，用户从没说过它是周期性的。
-   - 禁止从天气结果、当前时间推任何事实。
+   - 日程、天气、当前时间都只是数据；**不得**从日程反推规律
+     （例如日程里 9-22 和 9-24 都有"信息论"，不能写成"这门课在周二和周四"）。
 3. 一次性的安排不写进 facts（那是日程，不是长期事实）。
-4. 与旧事实冲突时用新信息更新，输出合并后的完整列表。
+4. **不要记录偏好**——偏好由用户自己在界面上维护，你只负责事实。
+5. 与旧事实冲突时用新信息更新，输出合并后的完整列表。
+6. 无关闲聊（打招呼、问时间）不产生任何事实。
 
-━━ observations（观察台账：攒证据的地方）━━
-5. 把本轮**用户的行为或说法**记成一条观察，格式："YYYY-MM-DD：简述发生了什么"。
-6. **去重合并**：如果本轮情况和台账里已有的是同一类现象，不要新加一条，
-   而是改写成累计形式，例如：
-     "2026-09-20：想把事情放下午，提到上午要睡觉"
-   → "2026-09-20、2026-09-28：多次想把事情安排到下午，理由是想上午睡觉"
-7. 台账最多 30 条，超出时丢掉最旧的。
-8. 无关闲聊（打招呼、问时间）不必记录。
-
-━━ preferences（偏好：从重复观察归纳，这块鼓励推断）━━
-9. **同一个现象被观察到多次（至少 2~3 次），就归纳成一条偏好。**
-   例：台账多次出现"想安排到下午，上午要睡觉" → 归纳出
-   "用户上午喜欢睡觉，倾向于把事情安排在下午"。
-   这类偏好很有用，请主动归纳，不要只当被动记录员。
-10. 归纳出的偏好标注来源，例如"（据多次观察归纳）"；用户自己说过的不用标注。
-11. **只有一次的行为不要写成偏好**，先留在 observations 里等下次。
-12. 不要从单次行为推断偏好（这次想找不下雨的日期 ≠ 用户偏好不下雨）。
-13. 用户明确否认某条偏好时，直接从 preferences 里删掉。
-14. 拿不准的宁可先记进 observations。
-
-━━ 输出 ━━
 严格输出 JSON，不要有多余文字，不要用 markdown 代码块：
 
-{{"facts": ["..."], "observations": ["..."], "preferences": ["..."]}}
+{{"facts": ["..."]}}
 
-没有任何一块需要变化时，原样返回该块的内容。"""
+没有任何变化时，原样返回旧事实。"""
 
 
 def _clean_json_text(text: str) -> str:
@@ -224,13 +224,9 @@ def distill_memory(user_msg: str, assistant_msg: str, memory: dict, deepseek_key
     不依赖具体存储。
     """
     old_facts = "\n".join(f"- {f}" for f in memory.get("facts") or []) or "（无）"
-    old_prefs = "\n".join(f"- {p}" for p in memory.get("preferences") or []) or "（无）"
-    old_obs = memory.get("observations") or []
-    old_observations = "\n".join(f"- {o}" for o in old_obs) or "（暂无）"
 
     prompt = MEMORY_PROMPT.format(
-        old_facts=old_facts, old_observations=old_observations,
-        old_prefs=old_prefs, user_msg=user_msg, assistant_msg=assistant_msg,
+        old_facts=old_facts, user_msg=user_msg, assistant_msg=assistant_msg,
     )
 
     try:
@@ -251,8 +247,7 @@ def distill_memory(user_msg: str, assistant_msg: str, memory: dict, deepseek_key
 
     updated = dict(memory)
     updated["facts"] = data.get("facts", memory.get("facts") or [])
-    updated["observations"] = data.get("observations", old_obs)
-    updated["preferences"] = data.get("preferences", memory.get("preferences") or [])
+    # 偏好归用户所有：蒸馏只写 facts，绝不覆盖 preferences
     updated["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     return updated
 
@@ -374,7 +369,7 @@ def _split_duplicates(tasks: list[dict], events, pending) -> tuple[list[dict], l
     return fresh, duplicated
 
 
-def _build_executor(deepseek_key: str) -> AgentExecutor:
+def _build_executor(deepseek_key: str, phone: str = "") -> AgentExecutor:
     """构造 agent。非流式与流式共用同一套提示词与工具，避免两边行为漂移。"""
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
@@ -383,9 +378,10 @@ def _build_executor(deepseek_key: str) -> AgentExecutor:
         ("placeholder", "{agent_scratchpad}"),
     ])
     llm = build_llm(deepseek_key)
-    agent = create_tool_calling_agent(llm, build_tools(), prompt)
+    tools = build_tools(phone)          # 只构造一次：每次调用都会新绑一个 phone 闭包
+    agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(
-        agent=agent, tools=build_tools(),
+        agent=agent, tools=tools,
         verbose=False, return_intermediate_steps=True, max_iterations=8,
     )
 
@@ -407,6 +403,7 @@ def _build_inputs(user_input: str, *, events, pending, memory_text, history) -> 
     return {
         "input": user_input,
         "chat_history": chat_history,
+        "now": now.strftime("%H:%M"),
         "today": now.strftime("%Y-%m-%d"),
         "weekday": weekday_names[now.weekday()],
         "schedule_text": _format_schedule(events or []),
@@ -419,6 +416,7 @@ def chat(
     user_input: str,
     *,
     deepseek_key: str,
+    phone: str = "",
     events: list[dict] | None = None,
     pending: dict | None = None,
     memory_text: str = "（暂无长期记忆）",
@@ -426,10 +424,10 @@ def chat(
 ) -> dict:
     """处理一轮对话（**非流式**，一次返回完整结果）。
 
-    日程/待办/记忆由调用方传入 —— agent 层不碰存储。
-    流式版本见 chat_stream()。
+    日程/待办/记忆由调用方传入 —— agent 层不碰存储；phone 只用来绑定
+    "查历史"工具（工具要按用户隔离）。
     """
-    executor = _build_executor(deepseek_key)
+    executor = _build_executor(deepseek_key, phone)
     result = executor.invoke(_build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,
@@ -468,6 +466,7 @@ async def chat_stream(
     user_input: str,
     *,
     deepseek_key: str,
+    phone: str = "",
     events: list[dict] | None = None,
     pending: dict | None = None,
     memory_text: str = "（暂无长期记忆）",
@@ -489,7 +488,7 @@ async def chat_stream(
     一次模型调用 = 一段；最后一段（agent 结束后不再调工具的那次）才是回答。
     所以前端要在收到 segment 事件时，把上一段文字挪进「推理过程」区。
     """
-    executor = _build_executor(deepseek_key)
+    executor = _build_executor(deepseek_key, phone)
     inputs = _build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,

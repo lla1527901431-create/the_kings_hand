@@ -1,11 +1,20 @@
 """长期记忆的数据访问。一个手机号一行。
 
-记忆分四块（前三块是 LLM 蒸馏出来的"关于人"的判断，第四块是"过去安排"的归档）：
+记忆分三块，职责刻意分开：
 
-    facts        用户**明确说过**的稳定事实
-    observations 观察台账：每条只记"某次发生了什么"，不下结论
-    preferences  稳定偏好，可以由 observations 多次归纳而来
-    history      过期日程的沉淀摘要，由 agent/memory_history.py 写入
+    facts        用户**明确说过**的稳定事实（身份、学校、单位……），LLM 自动蒸馏
+    preferences  稳定偏好，**只由用户手动维护**（LLM 只读不写，也不再自动归纳）
+    history      过期日程的沉淀摘要（见 agent/memory_history.py），按需通过
+                 search_history 工具查询，**不再每轮注入提示词**
+
+为什么取消 observations：
+    它存在的唯一理由是"攒证据给 LLM 归纳偏好"。偏好改成用户自己维护后，
+    这层台账就没有消费者了，而且实测它记的全是一次性日程（"明天去机场"），
+    与 history 重复。
+
+为什么 history 不预加载：
+    固定注入最近几条在长尾上没用（问半年前的事查不到），而且每轮都付
+    token。改成工具后由模型判断要不要查。
 
 history 里每条形如：
 
@@ -13,10 +22,10 @@ history 里每条形如：
      "from": "2026-10-05", "to": "2026-10-11",
      "count": 9, "summary": ["..."], "updated_at": "2026-10-23 18:00"}
 
-`key` 是幂等键：同一周期重复沉淀只会合并摘要、累加 count，不会重复记账。
+`key` 是幂等键：同一周期重复沉淀只会合并摘要、累加 count。
 
-⚠️ `clear_memory()` 只清前三块，**不动 history**：那是被删日程的唯一存根，
-   清掉就永久找不回来了。要清历史请单独处理。
+⚠️ `clear_memory()` 只清 facts/preferences，**不动 history**：那是被删日程的
+   唯一存根，清掉就永久找不回来了。
 """
 
 from __future__ import annotations
@@ -25,12 +34,9 @@ import json
 
 from db import database
 
-MAX_OBSERVATIONS = 30
-
 
 def _empty() -> dict:
-    return {"facts": [], "observations": [], "preferences": [],
-            "history": [], "last_updated": ""}
+    return {"facts": [], "preferences": [], "history": [], "last_updated": ""}
 
 
 def _loads(value: str) -> list:
@@ -44,7 +50,6 @@ def _loads(value: str) -> list:
 def _row_to_memory(row) -> dict:
     return {
         "facts": _loads(row["facts"]),
-        "observations": _loads(row["observations"]),
         "preferences": _loads(row["preferences"]),
         "history": _loads(row["history"]) if "history" in row.keys() else [],
         "last_updated": row["updated_at"] or "",
@@ -55,40 +60,31 @@ def load_memory(phone: str) -> dict:
     """读记忆。没有记录时返回空结构（不新建行）。"""
     database.init_db()
     row = database.query_one(
-        "SELECT facts, observations, preferences, history, updated_at "
-        "FROM memories WHERE phone = ?",
+        "SELECT facts, preferences, history, updated_at FROM memories WHERE phone = ?",
         (phone,),
     )
     return _row_to_memory(row) if row else _empty()
 
 
 def save_memory(phone: str, memory: dict) -> None:
-    """整体覆盖式保存前三块（upsert）。
+    """整体覆盖式保存 facts / preferences（upsert）。
 
     ⚠️ 刻意不写 history 列：调用方传进来的是"关于人"的记忆，
        不该顺手把历史归档覆盖掉。
     """
     database.init_db()
-    observations = memory.get("observations") or []
-    if not isinstance(observations, list):
-        observations = []
-    if len(observations) > MAX_OBSERVATIONS:
-        observations = observations[-MAX_OBSERVATIONS:]
-
     database.execute(
         """
-        INSERT INTO memories (phone, facts, observations, preferences, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO memories (phone, facts, preferences, updated_at)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(phone) DO UPDATE SET
             facts = excluded.facts,
-            observations = excluded.observations,
             preferences = excluded.preferences,
             updated_at = excluded.updated_at
         """,
         (
             phone,
             json.dumps(memory.get("facts") or [], ensure_ascii=False),
-            json.dumps(observations, ensure_ascii=False),
             json.dumps(memory.get("preferences") or [], ensure_ascii=False),
             database.now_text(),
         ),
@@ -96,8 +92,8 @@ def save_memory(phone: str, memory: dict) -> None:
 
 
 def clear_memory(phone: str) -> dict:
-    """清空"关于人"的三块记忆，保留 history 归档。"""
-    save_memory(phone, {"facts": [], "observations": [], "preferences": []})
+    """清空"关于人"的记忆（facts + preferences），保留 history 归档。"""
+    save_memory(phone, {"facts": [], "preferences": []})
     return _empty()
 
 
@@ -159,36 +155,21 @@ def load_history(phone: str) -> list[dict]:
 
 
 def format_memory_text(memory: dict) -> str:
-    """拼成给 LLM 看的文本。
+    """拼成给 LLM 看的"关于人"的记忆。
 
-    观察台账只在条数够多时展示 —— 只观察过一两次的行为不该影响判断，
-    展示出来反而容易让模型过度解读。
-
-    history 只取最近 5 条：它用来回答"用户过去怎么安排的"，
-    不是当前日程的替代品（当前日程另有 schedule_text）。
+    只放 facts 与 preferences：
+      * history 交给 search_history 工具按需查（固定注入在长尾上没用）；
+      * observations 已取消。
     """
     facts = memory.get("facts") or []
     prefs = memory.get("preferences") or []
-    observations = memory.get("observations") or []
-    history = memory.get("history") or []
 
     lines = []
     if facts:
         lines.append("关于用户的事实：")
         lines += [f"- {f}" for f in facts]
     if prefs:
-        lines.append("用户的偏好：")
+        lines.append("用户自己写的偏好：")
         lines += [f"- {p}" for p in prefs]
-    if len(observations) >= 3:
-        lines.append("（以下是多次观察到的行为记录，供参考，不要直接当成结论复述）")
-        lines += [f"- {o}" for o in observations[-10:]]
-    if history:
-        lines.append("（以下是已归档的过去安排，仅作背景，不是待办）")
-        for entry in history[-5:]:
-            summary = "；".join(entry.get("summary") or [])
-            span = entry.get("from") or ""
-            if entry.get("to") and entry["to"] != span:
-                span += f"~{entry['to']}"
-            lines.append(f"- {span}：{summary}")
 
     return "\n".join(lines) if lines else "（暂无长期记忆）"

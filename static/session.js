@@ -5,7 +5,7 @@
 let currentUser = null;
 let credentialsStatus = { has_deepseek_key: false };
 let deepseekStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
-let memoryData = { facts: [], observations: [], preferences: [], last_updated: "" };
+let memoryData = { facts: [], preferences: [], last_updated: "" };
 let appBooted = false;
 let needsBootstrap = false;     // 名单是否为空（为空时第一个登录者成为管理员）
 
@@ -321,9 +321,8 @@ function closeMemoryPanel() {
 
 function renderMemory() {
   const blocks = [
-    { key: "facts", title: "事实", hint: "你明确说过的稳定信息。" },
-    { key: "preferences", title: "偏好", hint: "带「据多次观察归纳」标记的是 AI 自己总结的 —— 不对就删掉。" },
-    { key: "observations", title: "观察台账", hint: "每次行为的原始记录，AI 靠它攒够多次才归纳出偏好。" },
+    { key: "facts", title: "事实", hint: "你明确说过的稳定信息，AI 会自动补充；不对就删掉。" },
+    { key: "preferences", title: "偏好", hint: "只由你自己维护，AI 只读不写。点「+ 添加」写一条。" },
   ];
 
   let html = `<div class="memory-updated">最后更新：${esc(memoryData.last_updated || "（暂无）")}</div>`;
@@ -338,8 +337,7 @@ function renderMemory() {
     } else {
       html += `<ul class="memory-list">`;
       items.forEach((item, i) => {
-        const inferred = block.key === "preferences" && /归纳|观察/.test(item);
-        html += `<li class="${inferred ? "inferred" : ""}">`;
+        html += `<li>`;
         html += `<span class="text">${esc(item)}</span>`;
         html += `<button class="del" data-del="${block.key}" data-index="${i}" title="删除">×</button>`;
         html += `</li>`;
@@ -381,7 +379,7 @@ async function deleteMemoryItem(key, index) {
 }
 
 async function addMemoryItem(key) {
-  const label = { facts: "事实", preferences: "偏好", observations: "观察记录" }[key] || key;
+  const label = { facts: "事实", preferences: "偏好" }[key] || key;
   const value = prompt(`添加一条${label}：`);
   if (!value || !value.trim()) return;
   const items = (memoryData[key] || []).slice();
@@ -393,7 +391,7 @@ async function clearAllMemory() {
   if (!confirm("确定清空全部长期记忆？AI 会忘记关于你的一切。")) return;
   try {
     const r = await Store.clearMemory();
-    memoryData = r.memory || { facts: [], observations: [], preferences: [], last_updated: "" };
+    memoryData = r.memory || { facts: [], preferences: [], last_updated: "" };
     renderMemory();
     toast("已清空全部记忆。", "ok");
   } catch (e) {

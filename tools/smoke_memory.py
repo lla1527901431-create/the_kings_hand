@@ -30,7 +30,7 @@ os.environ["DB_PATH"] = os.path.join(TMP_DIR, "memory.db")
 os.environ["DEBUG"] = "false"
 os.environ["LOG_LEVEL"] = "ERROR"
 
-from agent import memory_history                     # noqa: E402
+from agent import history_tools, memory_history         # noqa: E402
 from db import calendars, database, memories         # noqa: E402
 
 PASS, FAIL = 0, 0
@@ -178,6 +178,32 @@ before = len(memories.load_history(PHONE))
 memories.clear_memory(PHONE)
 after = len(memories.load_history(PHONE))
 check("history 仍在", before == 1 and after == 1, (before, after))
+
+# ---------------------------------------------------------------------------
+print("\n[8] 历史查询工具（search_history）")
+text = history_tools.format_all_history(PHONE)
+check("工具返回了归档标题", "过去已归档的安排" in text, text[:60])
+check("含桶的区间与条数", "2026-10-17（1 条）" in text, text[:120])
+check("明确提示不是待办", "不是当前待办" in text)
+check("空归档时给出说明", "暂无归档历史" in history_tools.format_all_history(OTHER))
+
+tool = history_tools.make_search_history(PHONE)
+check("工具名正确", tool.name == "search_history", tool.name)
+check("无参调用可用", "过去已归档的安排" in tool.invoke({}), tool.invoke({})[:60])
+
+# ---------------------------------------------------------------------------
+print("\n[9] 旧库自动删除 observations 列")
+reset_db()
+conn = database.get_conn()
+conn.execute("ALTER TABLE memories ADD COLUMN observations TEXT NOT NULL DEFAULT '[]'")
+conn.commit()
+cols_before = [r[1] for r in conn.execute("PRAGMA table_info(memories)")]
+database._initialized = False
+database.init_db()
+cols_after = [r[1] for r in database.get_conn().execute("PRAGMA table_info(memories)")]
+check("旧库确实有 observations", "observations" in cols_before, cols_before)
+check("迁移后列被删掉", "observations" not in cols_after, cols_after)
+check("load_memory 不再返回 observations", "observations" not in memories.load_memory(PHONE))
 
 # ---------------------------------------------------------------------------
 shutil.rmtree(TMP_DIR, ignore_errors=True)

@@ -187,7 +187,6 @@ class UpdatePendingRequest(BaseModel):
 
 class MemoryUpdateRequest(BaseModel):
     facts: list[str] | None = None
-    observations: list[str] | None = None
     preferences: list[str] | None = None
 
 
@@ -613,6 +612,7 @@ def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(current_user),
         result = runner.chat(
             message,
             deepseek_key=key,
+            phone=user.phone,
             events=req.events,
             pending=req.pending,
             memory_text=memories.format_memory_text(memory),
@@ -662,6 +662,7 @@ async def chat_stream_endpoint(req: ChatRequest, user: CurrentUser = Depends(cur
             async for event in runner.chat_stream(
                 message,
                 deepseek_key=key,
+                phone=user.phone,
                 events=req.events,
                 pending=req.pending,
                 memory_text=memories.format_memory_text(memory),
@@ -807,8 +808,6 @@ def update_memory(req: MemoryUpdateRequest, user: CurrentUser = Depends(current_
     memory = memories.load_memory(user.phone)
     if req.facts is not None:
         memory["facts"] = [f for f in req.facts if str(f).strip()]
-    if req.observations is not None:
-        memory["observations"] = [o for o in req.observations if str(o).strip()]
     if req.preferences is not None:
         memory["preferences"] = [p for p in req.preferences if str(p).strip()]
     memories.save_memory(user.phone, memory)

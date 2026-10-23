@@ -189,9 +189,11 @@ def _resolve_datetime(
         hour, minute = parsed
     else:
         if not date_str.strip():
+            # 两个参数都空：直接告诉模型"现在几点"，别让它去猜或声称拿不到
             return (
-                "需要日期或时间，但两者都为空。"
-                "请至少提供 date_str（YYYY-MM-DD），或直接告诉用户补充时间。"
+                f"当前时刻是 {now.strftime('%Y-%m-%d %H:%M')}（{_weekday_name(today)}）。"
+                "如果只是要'现在'，直接用这个值；要算具体时间请提供 time_str"
+                "（如 '19:16'）或 date_str（如 '2026-10-24'）。"
             )
         if target == today:
             hour, minute = now.hour, now.minute

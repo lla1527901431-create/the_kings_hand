@@ -314,25 +314,25 @@ function renderTasks() {
 }
 
 async function addTasks(tasks) {
-  const skipped = [];
+  const failed = [];
   for (const t of tasks) {
     if (!t.id) t.id = "task-" + Math.random().toString(36).slice(2, 8);
-
-    // 服务端已按规则判过重复（agent/dedup.py），别再入库
-    const d = t.dedup || {};
-    if (d.status === "duplicate") {
-      skipped.push(t.title);
-      continue;
+    try {
+      await Store.addPending(t);
+    } catch (e) {
+      // 入库失败必须让用户看见：模型在对话里已经说过"已添加"，
+      // 这里再静默失败，就会出现"说加了、列表里没有"的错觉。
+      console.error("任务入库失败", t, e);
+      failed.push(t.title || t.id);
     }
-    // 疑似重复 / 冲突 / 周期性：照常入库，但把原因写进备注让用户看见
-    if (d.reason) {
-      t.note = (t.note ? t.note + " " : "") + "⚠ " + d.reason;
-    }
-    await Store.addPending(t);
   }
-  await loadPending();
-  if (skipped.length) {
-    toast(`跳过 ${skipped.length} 个已存在的任务：${skipped.join("、")}`, "warn", 6000);
+  try {
+    await loadPending();
+  } catch (e) {
+    console.error("刷新待办列表失败", e);
+  }
+  if (failed.length) {
+    toast(`有 ${failed.length} 个任务没能保存：${failed.join("、")}`, "error", 8000);
   }
 }
 

@@ -268,10 +268,11 @@ def main():
                    "data": {"output": {"output": "有雨，改期吧",
                                        "intermediate_steps": []}}}
 
-    runner._build_executor = lambda key: StubExecutor()
+    runner._build_executor = lambda key, phone="": StubExecutor()
 
     async def collect():
-        return [ev async for ev in REAL_CHAT_STREAM("明天打球", deepseek_key=FAKE_KEY)]
+        return [ev async for ev in REAL_CHAT_STREAM(
+            "明天打球", deepseek_key=FAKE_KEY, phone="13800000001")]
 
     got = asyncio.run(collect())
     types = [e["type"] for e in got]

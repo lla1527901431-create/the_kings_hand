@@ -88,9 +88,15 @@ _COLUMN_MIGRATIONS = {
     ],
 }
 
+# 被废弃的列：偏好改为用户手动维护后，观察台账就没有来源了。
+# SQLite 3.35+ 支持 DROP COLUMN；老版本上删不掉也不影响运行（代码不再读它）。
+_DROP_COLUMNS = {
+    "memories": ["observations"],
+}
+
 
 def _apply_column_migrations(conn: sqlite3.Connection) -> None:
-    """给旧库补齐后来才加的列（幂等）。"""
+    """给旧库补齐后来才加的列 / 丢掉已废弃的列（幂等）。"""
     for table, columns in _COLUMN_MIGRATIONS.items():
         # 注意：这个连接是 init_db 里临时开的，没设 row_factory，所以按序号取值
         # （PRAGMA table_info 的列是 cid, name, type, notnull, dflt_value, pk）
@@ -100,6 +106,18 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
         for name, ddl in columns:
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+    for table, columns in _DROP_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name in columns:
+            if name not in existing:
+                continue
+            try:
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {name}")
+            except sqlite3.OperationalError:
+                # SQLite < 3.35 不支持 DROP COLUMN。删不掉也无妨：
+                # 代码已经不再读写这一列，留着只是占位。
+                pass
     conn.commit()
 
 
