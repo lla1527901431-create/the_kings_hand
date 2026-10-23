@@ -193,7 +193,7 @@ def set_session_cookies(
     response: Response,
     access_token: str,
     refresh_token: str,
-    access_max_age: int = 3600,
+    access_max_age: int = 3600,    #短期，1 hour
 ) -> str:
     """登录/续期成功后写入两条 HttpOnly cookie + 一条 CSRF cookie。
 
@@ -214,7 +214,7 @@ def set_session_cookies(
     response.set_cookie(
         REFRESH_COOKIE,
         refresh_token,
-        max_age=60 * 60 * 24 * 30,
+        max_age=60 * 60 * 24 * 30,   #长期，1 mouth
         httponly=True,
         samesite="lax",
         secure=secure,
