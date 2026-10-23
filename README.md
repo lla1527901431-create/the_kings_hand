@@ -102,6 +102,7 @@ the_kings_hand_demo/
 ├── agent/
 │   ├── runner.py              Agent 编排与提示词
 │   ├── llm.py                 LLM 客户端（按请求构造）
+│   ├── memory_history.py      过期日程 → 记忆沉淀（写 history 后删 events）
 │   ├── date_tools.py          日期/星期换算工具
 │   ├── weather_openmeteo.py   天气工具
 │   └── ics_exporter.py        .ics 生成
@@ -109,7 +110,10 @@ the_kings_hand_demo/
 ├── tools/add_phone.py         命令行加白名单
 ├── tools/make_favicon.py      生成 favicon.ico / favicon.svg（纯标准库，不装 Pillow）
 ├── tools/make_deploy_stage.py 生成干净的「发布副本」（剔除 .venv / 数据库 / 本地痕迹）
+├── tools/distill_memory.py    手工补跑「过期日程沉淀」（支持 --dry-run）
 ├── tools/smoke_auth.py        端到端冒烟：登录/密码/统一 Key（用临时库，不碰真实数据）
+├── tools/smoke_stream.py      流式对话冒烟（桩 agent，不联网）
+├── tools/smoke_memory.py      过期日程沉淀冒烟（桩摘要，不联网）
 └── data/app.db                ← 所有数据都在这个文件里
 ```
 
@@ -128,6 +132,16 @@ data/app.db
 - **清空**：删掉 `app.db` 后重启，会重新建一个空库
 
 ⚠️ `data/*.db` 已在 `.gitignore` 里排除，**不会被提交到 git**。
+
+### 过期日程会被物理删除
+
+「本周一之前」的日程会在登录后自动沉淀进长期记忆（`memories.history`），
+然后把原行从 `events` 删掉——所以**备份是找回历史原文的唯一途径**。
+
+- 用户手动删除的日程**不会**进记忆（删掉的行自然不在沉淀范围内）
+- 沉淀粒度随年龄变粗：≤7 天逐条、≤30 天按天、≤180 天按周、更久按月
+- 先写记忆、再删日程，同一个事务；摘要调用失败则一条都不删
+- 想先看效果：`python tools/distill_memory.py --phone 138... --dry-run`
 
 ---
 

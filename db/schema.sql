@@ -87,12 +87,15 @@ CREATE INDEX IF NOT EXISTS idx_pending_phone_bucket ON pending_tasks (phone, buc
 --   facts        用户明确说过的事实（JSON 数组）
 --   observations 观察台账（JSON 数组），同一现象多次出现才归纳成偏好
 --   preferences  稳定偏好（JSON 数组）
+--   history      过期日程的沉淀摘要（JSON 数组，见 agent/memory_history.py）
+--                越老的日程合并得越粗，所以增长远慢于 events
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS memories (
     phone        TEXT PRIMARY KEY,
     facts        TEXT NOT NULL DEFAULT '[]',
     observations TEXT NOT NULL DEFAULT '[]',
     preferences  TEXT NOT NULL DEFAULT '[]',
+    history      TEXT NOT NULL DEFAULT '[]',
     updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 

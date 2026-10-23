@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
-from agent import runner
+from agent import memory_history, runner
 from agent.ics_exporter import build_ics
 from agent.llm import CredentialsMissing
 from db import calendars, database, histories, memories, pendings, secrets, sessions, settings, whitelist
@@ -224,7 +224,8 @@ def health():
 # 登录 / 登出
 # ---------------------------------------------------------------------------
 @app.post("/session/login")
-def login(req: LoginRequest, request: Request, response: Response):
+def login(req: LoginRequest, request: Request, response: Response,
+          background: BackgroundTasks):
     """手机号登录（管理员需要密码）。
 
     三种进入方式：
@@ -317,6 +318,10 @@ def login(req: LoginRequest, request: Request, response: Response):
     user = whitelist.get(phone) or {}
     logger.info("登录成功：%s（管理员=%s%s）", phone, user.get("is_admin"),
                 "，首次引导" if bootstrapped else "")
+
+    # 过期日程沉淀：登录后顺手做，放后台，不拖慢登录响应
+    background.add_task(_distill_expired_events, phone)
+
     return {
         "status": "ok",
         "phone": phone,
@@ -551,6 +556,35 @@ def _prepare_chat(user: CurrentUser, req: ChatRequest) -> tuple[str, str, dict, 
     return (message, key,
             memories.load_memory(user.phone),
             histories.recent(user.phone) or req.history)
+
+
+def _distill_expired_events(phone: str) -> None:
+    """把「本周一之前」的日程沉淀进 memories.history，然后删掉原行。
+
+    三道保险：
+      * 每个用户每天只跑一次（记在 settings，键里带手机号，避免一个人跑完
+        其他人今天都不跑了）；
+      * 没配 Key 就跳过 —— 蒸馏要调 LLM；
+      * 任何异常只记日志：沉淀失败绝不能影响登录本身，也不能删数据
+        （事务在 memory_history 内部，抛异常时不会提交）。
+    """
+    try:
+        today = database.now_date()
+        mark = f"memory_distill:last_run:{phone}"
+        if settings.get(mark) == today:
+            return
+
+        key, _source = secrets.resolve_deepseek_key(phone)
+        if not key:
+            logger.info("跳过过期日程沉淀：%s 还没有可用的 DeepSeek Key", phone)
+            return
+
+        result = memory_history.distill(phone, key)
+        settings.set_value(mark, today, updated_by="system")
+        logger.info("过期日程沉淀：%s %s", phone, result)
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("过期日程沉淀失败（不影响登录）：%s: %s",
+                       type(e).__name__, str(e)[:200])
 
 
 def _distill_in_background(phone: str, user_msg: str, assistant_msg: str,

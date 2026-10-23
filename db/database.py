@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import config
@@ -81,6 +82,10 @@ _COLUMN_MIGRATIONS = {
         ("password_hash", "TEXT NOT NULL DEFAULT ''"),
         ("password_set_at", "TEXT"),
     ],
+    # 2026-10：过期日程沉淀到 memories.history
+    "memories": [
+        ("history", "TEXT NOT NULL DEFAULT '[]'"),
+    ],
 }
 
 
@@ -126,6 +131,36 @@ def execute(sql: str, params: tuple = ()) -> int:
 def now_text() -> str:
     """当前本地时间，格式 'YYYY-MM-DD HH:MM'。"""
     return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def now_date() -> str:
+    """当前本地日期，格式 'YYYY-MM-DD'。"""
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+@contextmanager
+def transaction():
+    """把多条写操作包成一个事务：全部成功才提交，任一失败整批回滚。
+
+    ⚠️ 事务内部只能用 `conn.execute(...)`，**不要**调用本模块的
+       execute()/query() —— 它们各自会 commit，事务会被切成两半。
+
+    典型用法（过期日程沉淀：写记忆 + 删日程必须同生共死）：
+
+        with database.transaction() as conn:
+            memories.upsert_history(conn, phone, entries)
+            conn.executemany("DELETE FROM events WHERE phone = ? AND id = ?", ids)
+    """
+    conn = get_conn()
+    if conn.in_transaction:      # 防御：上一条语句若留了隐式事务，先收尾
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 # ---------------------------------------------------------------------------
