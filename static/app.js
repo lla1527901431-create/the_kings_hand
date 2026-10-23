@@ -1,3 +1,9 @@
+// ============================================================================
+// 主界面逻辑：聊天、任务列表、周视图日历、事件编辑
+//
+// 数据访问统一走 Store（见 store.js），本文件不直接调用 fetch。
+// ============================================================================
+
 // ==================== DOM 引用 ====================
 const chatHistory = document.getElementById("chat-history");
 const chatInput = document.getElementById("chat-input");
@@ -5,13 +11,13 @@ const sendBtn = document.getElementById("send-btn");
 const showSteps = document.getElementById("show-steps");
 const resetBtn = document.getElementById("reset-btn");
 const exportIcsBtn = document.getElementById("export-ics-btn");
-const exportEmailBtn = document.getElementById("export-email-btn");
 const taskList = document.getElementById("task-list");
 const confirmAllBtn = document.getElementById("confirm-all-btn");
 const tabButtons = document.querySelectorAll(".tab-btn");
 const calendarDays = document.querySelector(".calendar-days");
 const calendarBody = document.getElementById("calendar-body");
-const rightPanel = document.querySelector(".right-panel");
+const calendarRange = document.getElementById("calendar-range");
+const calTodayBtn = document.getElementById("cal-today");
 
 // Next Week
 const bottomHandle = document.getElementById("bottom-handle");
@@ -25,18 +31,15 @@ const overlayBody = document.getElementById("overlay-body");
 const eventModal = document.getElementById("event-modal");
 const modalDetails = document.getElementById("modal-details");
 const modalAlter = document.getElementById("modal-alter");
-
 const viewTitle = document.getElementById("view-title");
 const viewTime = document.getElementById("view-time");
 const viewLocation = document.getElementById("view-location");
 const viewNote = document.getElementById("view-note");
-
 const editTitle = document.getElementById("edit-title");
 const editStart = document.getElementById("edit-start");
 const editEnd = document.getElementById("edit-end");
 const editLocation = document.getElementById("edit-location");
 const editNote = document.getElementById("edit-note");
-
 const modalSaveBtn = document.getElementById("modal-save");
 const modalDeleteBtn = document.getElementById("modal-delete");
 const modalEditBtn = document.getElementById("modal-edit-btn");
@@ -48,13 +51,12 @@ let pendingData = { confirmed: [], planned: [] };
 let activeTab = "confirmed";
 let confirmedEvents = [];
 let editingEventId = null;
+let chatContext = [];        // 本地保留的对话上下文，随 /chat 一起发送
+let streaming = false;       // 正在流式输出：期间锁住输入，避免并发提问
 
 const EVENT_COLORS = [
-  "var(--event-1)",
-  "var(--event-2)",
-  "var(--event-3)",
-  "var(--event-4)",
-  "var(--event-5)",
+  "var(--event-1)", "var(--event-2)", "var(--event-3)",
+  "var(--event-4)", "var(--event-5)",
 ];
 
 const HOUR_HEIGHT = parseFloat(
@@ -106,16 +108,25 @@ function appendMessage(role, text) {
 function appendSteps(steps) {
   if (!showSteps.checked) return;
   if (!steps || steps.length === 0) return;
-  const div = document.createElement("div");
-  div.className = "steps";
-  div.textContent = steps
+  // 默认折叠：工具调用日志很长，铺开会把正事顶出屏幕
+  const wrap = document.createElement("details");
+  wrap.className = "steps";
+
+  const summary = document.createElement("summary");
+  summary.textContent = `推理过程 · ${steps.length} 步`;
+  wrap.appendChild(summary);
+
+  const body = document.createElement("div");
+  body.className = "steps-body";
+  body.textContent = steps
     .map((s) => `↳ 调用 ${s.tool}，参数 ${JSON.stringify(s.args)}`)
     .join("\n");
-  chatHistory.appendChild(div);
+  wrap.appendChild(body);
+
+  chatHistory.appendChild(wrap);
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
-/** 把纯文本 /memory 当成打开记忆面板的快捷方式 */
 function handleMemoryCommand(text) {
   if (!/^\/memory$/i.test(text.trim())) return false;
   appendMessage("user", text);
@@ -125,30 +136,131 @@ function handleMemoryCommand(text) {
   return true;
 }
 
+// ---- 流式渲染用的小工具 ----
+function appendStreamBubble() {
+  const div = document.createElement("div");
+  div.className = "msg assistant streaming";
+  chatHistory.appendChild(div);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+  return div;
+}
+
+function createReasoningBlock() {
+  const wrap = document.createElement("details");
+  wrap.className = "steps";
+  wrap.open = true;                 // 流式期间保持展开，让用户看到实时进展
+  const summary = document.createElement("summary");
+  summary.textContent = "推理过程";
+  const body = document.createElement("div");
+  body.className = "steps-body";
+  wrap.appendChild(summary);
+  wrap.appendChild(body);
+  chatHistory.appendChild(wrap);
+  return { wrap, summary, body };
+}
+
+function appendReasonLine(block, text) {
+  if (!block) return;
+  const line = document.createElement("div");
+  line.className = "reason-line";
+  line.textContent = text;
+  block.body.appendChild(line);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+/**
+ * 收到 segment 事件：说明上一个模型轮次结束了。
+ * 如果它后面接着调工具，那这段文字是"思考"，挪进推理过程区；
+ * 否则（最后一轮）它就是给用户看的回答，留在气泡里。
+ * 关掉「显示推理过程」时直接丢弃，避免思考内容混进回答。
+ */
+function flushSegment(bubble, block) {
+  const text = (bubble.textContent || "").trim();
+  bubble.textContent = "";
+  if (text) appendReasonLine(block, text);
+}
+
+function setStreaming(on) {
+  streaming = on;
+  chatInput.disabled = on;
+  sendBtn.disabled = on;
+  chatInput.placeholder = on ? "正在回复…" : "输入任务，例如：明天下午三点开会";
+}
+
 async function send() {
   const text = chatInput.value.trim();
-  if (!text) return;
+  if (!text || streaming) return;
   if (handleMemoryCommand(text)) return;
 
   appendMessage("user", text);
   chatInput.value = "";
 
-  const loading = document.createElement("div");
-  loading.className = "msg assistant";
-  loading.textContent = "思考中...";
-  chatHistory.appendChild(loading);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
+  const bubble = appendStreamBubble();
+  const reasoning = showSteps.checked ? createReasoningBlock() : null;
+  setStreaming(true);
+
+  // 只累积"当前这一段"的文字；下一段开始时会被清空
+  let output = "";
 
   try {
-    const data = await api("/chat", { method: "POST", body: { message: text } });
-    loading.remove();
-    appendSteps(data.steps);
-    appendMessage("assistant", data.output);
-    if (data.tasks && data.tasks.length > 0) {
-      await addTasks(data.tasks);
+    await Store.chatStream(text, {
+      events: confirmedEvents,
+      pending: pendingData,
+      history: chatContext.slice(-10),
+    }, async (ev) => {
+      if (ev.type === "token") {
+        output += ev.text;
+        bubble.textContent = output;
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+
+      } else if (ev.type === "segment") {
+        flushSegment(bubble, reasoning);
+        output = "";
+
+      } else if (ev.type === "step") {
+        if (reasoning) reasoning.summary.textContent = `推理过程 · 正在调用 ${ev.tool}…`;
+        appendReasonLine(reasoning,
+          `↳ 调用 ${ev.tool}，参数 ${JSON.stringify(ev.args)}`);
+
+      } else if (ev.type === "tasks") {
+        // 任务一识别出来就进待确认列表，不用等回答说完
+        if (ev.tasks && ev.tasks.length > 0) await addTasks(ev.tasks);
+
+      } else if (ev.type === "done") {
+        bubble.classList.remove("streaming");
+        if (!output && ev.output) {
+          bubble.textContent = ev.output;
+          output = ev.output;
+        }
+        if (reasoning) {
+          reasoning.summary.textContent =
+            `推理过程 · ${(ev.steps || []).length} 步`;
+          if (!reasoning.body.children.length) reasoning.wrap.remove();
+        }
+        if (output) {
+          chatContext.push({ role: "user", content: text });
+          chatContext.push({ role: "assistant", content: output });
+          if (chatContext.length > 10) chatContext = chatContext.slice(-10);
+        }
+
+      } else if (ev.type === "error") {
+        bubble.classList.remove("streaming");
+        bubble.textContent = "出错了：" + ev.message;
+        output = "";
+      }
+    });
+
+    // 流正常结束但没收到 done（例如连接被提前断开）时的兜底
+    if (!bubble.textContent && !output) {
+      bubble.classList.remove("streaming");
+      bubble.textContent = "（没有收到回复）";
     }
   } catch (e) {
-    loading.textContent = "出错了：" + e.message;
+    bubble.classList.remove("streaming");
+    bubble.textContent = "出错了：" + e.message;
+  } finally {
+    setStreaming(false);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
   }
 }
 
@@ -159,7 +271,6 @@ function currentTasks() {
 
 function renderTasks() {
   taskList.innerHTML = "";
-
   confirmAllBtn.style.display = activeTab === "confirmed" ? "" : "none";
 
   const tasks = currentTasks();
@@ -180,19 +291,11 @@ function renderTasks() {
       : "待计划";
 
     const actionsHtml = activeTab === "confirmed"
-      ? `<button class="confirm">确认</button>
-         <button class="modify">修改</button>
-         <button class="delete">删除</button>`
-      : `<button class="modify">修改</button>
-         <button class="delete">删除</button>`;
+      ? `<button class="confirm">确认</button><button class="modify">修改</button><button class="delete">删除</button>`
+      : `<button class="modify">修改</button><button class="delete">删除</button>`;
 
-    const locHtml = task.location
-      ? `<div class="task-location">${escapeHtml(task.location)}</div>`
-      : "";
-
-    const noteHtml = task.note
-      ? `<div class="task-note">${escapeHtml(task.note)}</div>`
-      : "";
+    const locHtml = task.location ? `<div class="task-location">${escapeHtml(task.location)}</div>` : "";
+    const noteHtml = task.note ? `<div class="task-note">${escapeHtml(task.note)}</div>` : "";
 
     card.innerHTML = `
       <div class="task-title">${escapeHtml(task.title)}</div>
@@ -206,21 +309,35 @@ function renderTasks() {
     if (confirmBtn) confirmBtn.addEventListener("click", () => confirmTask(task.id));
     card.querySelector(".modify").addEventListener("click", () => modifyTask(task.id));
     card.querySelector(".delete").addEventListener("click", () => deleteTask(task.id));
-
     taskList.appendChild(card);
   });
 }
 
 async function addTasks(tasks) {
+  const skipped = [];
   for (const t of tasks) {
     if (!t.id) t.id = "task-" + Math.random().toString(36).slice(2, 8);
-    await api("/pending/add", { method: "POST", body: t });
+
+    // 服务端已按规则判过重复（agent/dedup.py），别再入库
+    const d = t.dedup || {};
+    if (d.status === "duplicate") {
+      skipped.push(t.title);
+      continue;
+    }
+    // 疑似重复 / 冲突 / 周期性：照常入库，但把原因写进备注让用户看见
+    if (d.reason) {
+      t.note = (t.note ? t.note + " " : "") + "⚠ " + d.reason;
+    }
+    await Store.addPending(t);
   }
   await loadPending();
+  if (skipped.length) {
+    toast(`跳过 ${skipped.length} 个已存在的任务：${skipped.join("、")}`, "warn", 6000);
+  }
 }
 
 async function deleteTask(id) {
-  await api("/pending/delete", { method: "POST", body: { id } });
+  await Store.deletePending(id);
   await loadPending();
 }
 
@@ -250,16 +367,9 @@ async function modifyTask(id) {
   if (newNote === null) return;
   task.note = newNote.trim() || "";
 
-  await api("/pending/update", {
-    method: "POST",
-    body: {
-      id: task.id,
-      title: task.title,
-      start: task.start,
-      end: task.end,
-      location: task.location,
-      note: task.note,
-    },
+  await Store.updatePending({
+    id: task.id, title: task.title, start: task.start, end: task.end,
+    location: task.location, note: task.note,
   });
   await loadPending();
 }
@@ -270,49 +380,37 @@ async function confirmTask(id) {
     pendingData.planned.find((t) => t.id === id);
   if (!task) return;
 
+  // 只有开始时间就补一小时（后端也会兜底，这里让界面立刻一致）
   if (task.start && !task.end) {
     const start = parseDateTime(task.start);
-    if (start) {
-      const end = new Date(start.getTime() + 60 * 60 * 1000);
-      task.end = formatDateTime(end);
-    }
+    if (start) task.end = formatDateTime(new Date(start.getTime() + 3600 * 1000));
   }
 
-  // 先补上结束时间（后端也会兜底，这里保证 UI 立刻一致）
-  await api("/pending/update", {
-    method: "POST",
-    body: {
-      id: task.id,
-      title: task.title,
-      start: task.start,
-      end: task.end,
-      location: task.location,
-      note: task.note,
-    },
+  await Store.updatePending({
+    id: task.id, title: task.title, start: task.start, end: task.end,
+    location: task.location, note: task.note,
   });
 
   try {
-    await api("/pending/confirm", { method: "POST", body: { id } });
+    await Store.confirmPending(id);
   } catch (e) {
     toast("确认失败：" + e.message, "error");
     return;
   }
-
   await loadPending();
   await loadEvents();
 }
 
 async function confirmAll() {
-  const ids = pendingData.confirmed.map((t) => t.id);
-  for (const id of ids) {
-    await confirmTask(id);
+  for (const t of pendingData.confirmed.map((x) => x.id)) {
+    await confirmTask(t);
   }
 }
 
 // ==================== 数据加载 ====================
 async function loadPending() {
   try {
-    pendingData = await api("/pending");
+    pendingData = await Store.loadPending();
     renderTasks();
   } catch (e) {
     console.error("加载待办失败：", e);
@@ -321,8 +419,7 @@ async function loadPending() {
 
 async function loadEvents() {
   try {
-    const data = await api("/events");
-    confirmedEvents = data.events || [];
+    confirmedEvents = await Store.listEvents();
     renderCalendar();
     renderNextWeekOverlay();
   } catch (e) {
@@ -331,18 +428,39 @@ async function loadEvents() {
 }
 
 // ==================== 日历渲染 ====================
+// 今天所在列下标（0 = 周一），今天不在本周时为 -1
+let todayColIndex = -1;
+// 当前时间线的纵坐标（px），「今天」按钮和初次定位都用它
+let nowLineTop = -1;
+
 function renderCalendar() {
   const monday = getMonday(new Date());
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayIdx = Math.round((todayMidnight - monday) / 86400000);
+  todayColIndex = todayIdx >= 0 && todayIdx <= 6 ? todayIdx : -1;
 
+  // ---- 表头：星期在上、日期在下，居中；今天加胶囊 ----
   calendarDays.innerHTML = "<div></div>";
   const wdNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     const div = document.createElement("div");
-    div.textContent = `${wdNames[i]} ${d.getMonth() + 1}/${d.getDate()}`;
+    div.innerHTML =
+      `<div class="day-cell${i === todayColIndex ? " today" : ""}">` +
+      `<span class="dw">${wdNames[i]}</span>` +
+      `<span class="dn">${d.getDate()}</span>` +
+      `</div>`;
     calendarDays.appendChild(div);
   }
+
+  // ---- 头部日期范围 ----
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  calendarRange.textContent =
+    `${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日` +
+    ` – ${sunday.getMonth() + 1}月${sunday.getDate()}日`;
 
   calendarBody.innerHTML = "";
 
@@ -359,7 +477,7 @@ function renderCalendar() {
   const dayCols = [];
   for (let i = 0; i < 7; i++) {
     const col = document.createElement("div");
-    col.className = "day-col";
+    col.className = i === todayColIndex ? "day-col today-col" : "day-col";
     for (let h = 0; h < 24; h++) {
       const slot = document.createElement("div");
       slot.className = "hour-slot";
@@ -371,8 +489,8 @@ function renderCalendar() {
 
   confirmedEvents.forEach((evt, idx) => {
     const start = parseDateTime(evt.start);
-    const end = parseDateTime(evt.end);
-    if (!start || !end) return;
+    const end = parseDateTime(evt.end) || start;
+    if (!start) return;
 
     const dayIndex = Math.floor((start - monday) / (1000 * 60 * 60 * 24));
     if (dayIndex < 0 || dayIndex > 6) return;
@@ -380,17 +498,30 @@ function renderCalendar() {
     const startMin = start.getHours() * 60 + start.getMinutes();
     const endMin = end.getHours() * 60 + end.getMinutes();
     const top = (startMin / 60) * HOUR_HEIGHT;
-    const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT, 20);
+    const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT, 24);
 
     const card = document.createElement("div");
     card.className = "event-card";
     card.style.top = top + "px";
     card.style.height = height + "px";
-    card.style.background = EVENT_COLORS[idx % EVENT_COLORS.length];
     card.style.cursor = "pointer";
-    card.textContent = evt.location
-      ? `${evt.title} · ${evt.location}`
-      : evt.title;
+
+    const title = document.createElement("div");
+    title.className = "ev-title";
+    title.textContent = evt.title;
+    card.appendChild(title);
+
+    // 卡片够高才补第二行（时间 + 地点）；半小时那种矮块塞两行会糊成一坨
+    if (height >= 46) {
+      const hhmm = (v) => String(v).slice(11, 16);
+      const span = evt.end ? `${hhmm(evt.start)} – ${hhmm(evt.end)}` : hhmm(evt.start);
+      const sub = document.createElement("div");
+      sub.className = "ev-sub";
+      sub.textContent = evt.location ? `${span} · ${evt.location}` : span;
+      card.appendChild(sub);
+    }
+
+    card.title = evt.location ? `${evt.title} · ${evt.location}` : evt.title;
     card.addEventListener("click", (e) => {
       e.stopPropagation();
       openEventModal(evt.id);
@@ -398,8 +529,36 @@ function renderCalendar() {
     dayCols[dayIndex].appendChild(card);
   });
 
-  calendarBody.scrollTop = 7 * HOUR_HEIGHT;
+  // ---- 当前时间指示线 ----
+  nowLineTop = -1;
+  if (todayColIndex >= 0) {
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const lineTop = (minutes / 60) * HOUR_HEIGHT;
+    const line = document.createElement("div");
+    line.className = "now-line";
+    line.style.top = lineTop + "px";
+    const tip = document.createElement("span");
+    tip.textContent = formatDateTime(now).slice(11, 16);
+    line.appendChild(tip);
+    calendarBody.appendChild(line);
+    nowLineTop = lineTop;
+  }
+
+  scrollToNow();
 }
+
+// 把当前时间线滚到视口中间；今天不在本周就回落到早上 7 点
+function scrollToNow() {
+  const fallback = 7 * HOUR_HEIGHT;
+  if (nowLineTop < 0) {
+    calendarBody.scrollTop = fallback;
+    return;
+  }
+  const viewHeight = calendarBody.clientHeight || 600;
+  calendarBody.scrollTop = Math.max(0, nowLineTop - viewHeight / 2);
+}
+
+calTodayBtn.addEventListener("click", scrollToNow);
 
 // ==================== Next Week 覆盖层 ====================
 function renderNextWeekOverlay() {
@@ -412,8 +571,6 @@ function renderNextWeekOverlay() {
   overlayTitle.textContent = `Next Week (${nextMonday.getMonth() + 1}/${nextMonday.getDate()} - ${nextSunday.getMonth() + 1}/${nextSunday.getDate()})`;
 
   const wdNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  // 表头
   overlayDaysHeader.innerHTML = "<div class='overlay-spacer'></div>";
   for (let i = 0; i < 7; i++) {
     const d = new Date(nextMonday);
@@ -423,7 +580,6 @@ function renderNextWeekOverlay() {
     overlayDaysHeader.appendChild(div);
   }
 
-  // 主体
   overlayBody.innerHTML = "<div class='overlay-spacer'></div>";
   for (let i = 0; i < 7; i++) {
     const dayDate = new Date(nextMonday);
@@ -433,36 +589,29 @@ function renderNextWeekOverlay() {
     const col = document.createElement("div");
     col.className = "overlay-day-col";
 
-    // 筛选当天事件
-    const dayEvents = confirmedEvents.filter(
-      (e) => e.start && e.start.startsWith(dayStr)
-    );
-    dayEvents.sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+    const dayEvents = confirmedEvents
+      .filter((e) => e.start && e.start.startsWith(dayStr))
+      .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
 
-    const morning = [];
-    const afternoon = [];
+    const morning = [], afternoon = [];
     for (const e of dayEvents) {
-      const hour = parseInt(e.start.slice(11, 13), 10);
-      if (hour < 12) morning.push(e);
-      else afternoon.push(e);
+      (parseInt(e.start.slice(11, 13), 10) < 12 ? morning : afternoon).push(e);
     }
 
-    if (morning.length > 0) {
+    if (morning.length) {
       const title = document.createElement("div");
       title.className = "overlay-section-title";
       title.textContent = "上午";
       col.appendChild(title);
       morning.forEach((e) => col.appendChild(makeOverlayCard(e, "morning")));
     }
-
-    if (afternoon.length > 0) {
+    if (afternoon.length) {
       const title = document.createElement("div");
       title.className = "overlay-section-title";
       title.textContent = "下午";
       col.appendChild(title);
       afternoon.forEach((e) => col.appendChild(makeOverlayCard(e, "afternoon")));
     }
-
     overlayBody.appendChild(col);
   }
 }
@@ -494,11 +643,8 @@ function openEventModal(eventId) {
   if (!evt) return;
 
   editingEventId = eventId;
-
   viewTitle.textContent = evt.title || "(无标题)";
-  const start = evt.start || "";
-  const end = evt.end || "";
-  viewTime.textContent = end ? `${start} ~ ${end}` : start;
+  viewTime.textContent = evt.end ? `${evt.start} ~ ${evt.end}` : (evt.start || "");
   viewLocation.textContent = evt.location || "";
   viewNote.textContent = evt.note || "";
 
@@ -514,13 +660,11 @@ function switchToViewMode() {
 function switchToEditMode() {
   const evt = confirmedEvents.find((e) => e.id === editingEventId);
   if (!evt) return;
-
   editTitle.value = evt.title || "";
   editStart.value = evt.start || "";
   editEnd.value = evt.end || "";
   editLocation.value = evt.location || "";
   editNote.value = evt.note || "";
-
   modalDetails.classList.add("hidden");
   modalAlter.classList.remove("hidden");
 }
@@ -532,7 +676,6 @@ function closeEventModal() {
 
 async function saveEventEdit() {
   if (!editingEventId) return;
-
   const body = {
     id: editingEventId,
     title: editTitle.value.trim(),
@@ -541,19 +684,16 @@ async function saveEventEdit() {
     location: editLocation.value.trim(),
     note: editNote.value.trim(),
   };
-
   if (!body.title || !body.start) {
     alert("标题和开始时间不能为空");
     return;
   }
-
   try {
-    await api("/event/update", { method: "POST", body });
+    await Store.updateEvent(body);
   } catch (e) {
     alert("保存失败：" + e.message);
     return;
   }
-
   await loadEvents();
   closeEventModal();
 }
@@ -561,14 +701,12 @@ async function saveEventEdit() {
 async function deleteEvent() {
   if (!editingEventId) return;
   if (!confirm("确定删除这个事件？")) return;
-
   try {
-    await api("/event/delete", { method: "POST", body: { id: editingEventId } });
+    await Store.deleteEvent(editingEventId);
   } catch (e) {
     alert("删除失败：" + e.message);
     return;
   }
-
   await loadEvents();
   closeEventModal();
 }
@@ -583,18 +721,6 @@ exportIcsBtn.addEventListener("click", () => {
   window.open("/export_ics", "_blank");
 });
 
-exportEmailBtn.addEventListener("click", async () => {
-  const toEmail = prompt("收件邮箱：", "");
-  if (!toEmail) return;
-
-  try {
-    const data = await api("/export_email", { method: "POST", body: { to_email: toEmail.trim() } });
-    alert(data.message || "已发送");
-  } catch (e) {
-    alert("发送失败：" + e.message);
-  }
-});
-
 tabButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     activeTab = btn.dataset.tab;
@@ -607,14 +733,14 @@ confirmAllBtn.addEventListener("click", confirmAll);
 
 resetBtn.addEventListener("click", async () => {
   try {
-    await api("/reset", { method: "POST" });
+    await Store.resetChat();
   } catch (e) {
     toast("清空失败：" + e.message, "error");
     return;
   }
+  chatContext = [];
   chatHistory.innerHTML = "";
   appendMessage("assistant", "对话上下文已清空（日历和长期记忆不受影响）。");
-  renderTasks();
 });
 
 // Next Week
@@ -627,15 +753,9 @@ modalCancelBtn.addEventListener("click", switchToViewMode);
 modalCloseBtn.addEventListener("click", closeEventModal);
 modalSaveBtn.addEventListener("click", saveEventEdit);
 modalDeleteBtn.addEventListener("click", deleteEvent);
-
 eventModal.addEventListener("click", (e) => {
-  if (e.target === eventModal) {
-    closeEventModal();
-  }
+  if (e.target === eventModal) closeEventModal();
 });
 
 // ==================== 初始化 ====================
-// 注意：这里**不能**直接 loadPending() / loadEvents()。
-// 数据要等登录完成（ui.js 的 startApp）之后再拉，否则会以匿名身份请求，
-// 在 RLS 下什么都读不到。
-// 具体启动顺序见 ui.js 的 startApp()。
+// 不在这里拉数据：要等登录完成后再拉（见 session.js 的 startApp）。

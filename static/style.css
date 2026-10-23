@@ -330,8 +330,11 @@ body {
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* calendar-header 现在是两行结构：
+   第一行 = calendar-header-top（Week View 标题 + 日期范围 + 回到当前时间）
+   第二行 = calendar-days（星期 / 日期，居中）
+   标题本身的字号、颜色、padding 交给 theme.css 定义，这里不再写死。 */
 .calendar-title {
-  padding: 8px 16px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-dim);
@@ -354,6 +357,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scroll-behavior: smooth;
   display: grid;
   grid-template-columns: 60px repeat(7, 1fr);
   position: relative;
@@ -694,7 +698,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 20% 20%, #2c0f45 0%, var(--bg-deep) 60%);
+  /* 纯色底，不做径向渐变 —— 渐变叠浅色事件卡片会发灰 */
+  background: var(--bg-deep);
   z-index: 600;
   padding: 20px;
 }

@@ -1,20 +1,21 @@
 # ============================================================================
-# The King's Hand —— 一键启动（腾讯云 CVM）
+# The King's Hand —— 一键启动（SQLite 版）
 # ============================================================================
 # 用法：
-#   docker compose up -d --build     启动（后台）
-#   docker compose logs -f app       看日志
-#   docker compose down              停止
-#   docker compose up -d --build     改完代码后重建
+#   mkdir -p data && sudo chown -R 1000:1000 data    # 首次：让容器里的 appuser 能写
+#   docker compose up -d --build
+#   docker compose logs -f app
+#   docker compose down
 #
 # 前置：
-#   1. 服务器上放好 .env（从本地复制，含 Supabase 配置和 SECRET_MASTER_KEY）
-#   2. 证书放到 ./certs/  见 DEPLOY.md
+#   1. 服务器上放好 .env（见 DEPLOY.md 第 4 节，**必须含 PORT=8000**）
+#   2. 证书放到 ./certs/（见 DEPLOY.md 第 6 节）
 # ============================================================================
 
 services:
   # ---------------------------------------------------------------------------
   # 应用本体。只监听 127.0.0.1，不直接暴露到公网 —— 外部流量一律走 Nginx。
+  # 单进程：SQLite 只有一个写锁，多进程只会互相排队，不会更快。
   # ---------------------------------------------------------------------------
   app:
     build: .
@@ -25,27 +26,31 @@ services:
       - .env
     environment:
       HOST: 0.0.0.0
+      # ⚠️ PORT 不只是端口：config.py 用它判断"这是托管环境"，
+      #    有它才会绑 0.0.0.0 并关掉热重载。删了这行容器外就访问不到。
       PORT: 8000
       DEBUG: "false"
-      WORKERS: "1"
       LOG_LEVEL: INFO
-      # ⚠️ 公网必须 true：让会话 cookie 只走 HTTPS
+      # 公网必须 true：让会话 cookie 只走 HTTPS
       COOKIE_SECURE: "true"
+    volumes:
+      # 全部数据都在这个文件里，**必须挂出来**，否则容器重建就没了
+      - ./data:/app/data
     ports:
-      # 只绑到宿主机本地回环，公网访问不到这个端口，只能经 Nginx
       - "127.0.0.1:8000:8000"
     logging:
       driver: json-file
       options:
-        max-size: "10m"      # 单个日志文件最大 10MB
-        max-file: "5"        # 最多保留 5 个，避免磁盘被日志撑满
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
           memory: 1g
 
   # ---------------------------------------------------------------------------
-  # Nginx：负责 HTTPS 卸载（证书在这一层）+ 把请求转给 app
+  # Nginx：HTTPS 卸载 + 反向代理。conf 里已关闭 proxy_buffering，
+  # 否则流式对话（SSE）会被缓冲成一次性返回。
   # ---------------------------------------------------------------------------
   nginx:
     image: nginx:1.27-alpine

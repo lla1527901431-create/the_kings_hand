@@ -1,255 +1,144 @@
-"""鉴权：从 HttpOnly cookie 里取出用户 JWT，交给 Supabase 去验证。
+"""鉴权：手机号白名单 + cookie 会话。
 
-一个刻意的设计决定 —— 这里**不自己验证 JWT 签名**：
+与云端版的区别：
+    云端：Supabase Auth 签发 JWT，后端只做转手
+    这里：后端自己签发随机 token 存 SQLite，cookie 里只放 token
 
-    真正决定"你是谁"的不是这里，而是数据库。我们把 token 原样转给
-    PostgREST，由 Supabase 验签，让 auth.uid() 决定能看到哪些行。
-    伪造的 token 会在数据库那层被拒绝（实测返回 401 PGRST301）。
-
-本模块负责：
-  1. 从 cookie（或 Authorization 头，便于测试/脚本）取 token；
-  2. 解析载荷做**早期失败**（格式不对 / 已过期就直接告诉前端去续期）；
-  3. 写/清 cookie（登入登出）；
-  4. CSRF 双提交校验 —— cookie 方案必须付的代价。
-
-绝不要相信这里解出来的 user_id 去做数据过滤，过滤交给 RLS。
+依赖注入用法：
+    def endpoint(user: CurrentUser = Depends(current_user)): ...
 """
 
 from __future__ import annotations
 
-import base64
-import json
-import secrets
-import time
-from contextlib import contextmanager
-
 from fastapi import Header, HTTPException, Request, Response
 
-from agent import db
+from db import sessions, whitelist
+from server.logging_config import set_user_id
 
-ACCESS_COOKIE = "kh_access"
-REFRESH_COOKIE = "kh_refresh"
+SESSION_COOKIE = "kh_session"
 CSRF_COOKIE = "kh_csrf"
 CSRF_HEADER = "x-csrf-token"
-
-# cookie 路径：refresh 只在续期接口用得到，缩小暴露面
-REFRESH_PATH = "/session"
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-class TokenExpired(Exception):
-    """access_token 过期。前端收到这个信号后应当去调 /session/refresh。"""
+class CurrentUser:
+    __slots__ = ("phone", "is_admin")
 
+    def __init__(self, phone: str, is_admin: bool):
+        self.phone = phone
+        self.is_admin = is_admin
 
-class TokenInvalid(Exception):
-    """token 结构不对 / 不是登录身份。前端应当直接回登录页。"""
-
-
-class TokenInfo:
-    __slots__ = ("token", "user_id", "claims")
-
-    def __init__(self, token: str, user_id: str, claims: dict):
-        self.token = token
-        self.user_id = user_id
-        self.claims = claims
-
-    def __repr__(self) -> str:  # 绝不要把 token 打进日志
-        return f"TokenInfo(user_id={self.user_id!r})"
-
-
-def _b64url_decode(segment: str) -> bytes:
-    return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
-
-
-def decode_claims(token: str) -> dict:
-    """解析 JWT 载荷（不验签）。格式不合法时抛 ValueError。"""
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise ValueError("token 不是合法的 JWT 结构（应为三段）")
-    try:
-        payload = json.loads(_b64url_decode(parts[1]))
-    except Exception as e:
-        raise ValueError(f"token 载荷不是合法 JSON：{e}") from e
-    if not isinstance(payload, dict):
-        raise ValueError("token 载荷不是对象")
-    return payload
-
-
-def _extract_bearer(authorization: str | None) -> str:
-    if not authorization:
-        return ""
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        return ""
-    return token.strip()
+    def __repr__(self) -> str:
+        return f"CurrentUser(phone={self.phone[:3]}****{self.phone[-4:]}, admin={self.is_admin})"
 
 
 def _token_from(request: Request, authorization: str | None) -> str:
-    """优先 cookie（浏览器路径），其次 Authorization 头（脚本/测试路径）。"""
-    token = (request.cookies.get(ACCESS_COOKIE) or "").strip()
+    """优先 cookie（浏览器），其次 Authorization 头（脚本调试用）。"""
+    token = (request.cookies.get(SESSION_COOKIE) or "").strip()
     if token:
         return token
-    return _extract_bearer(authorization)
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return ""
 
 
-async def current_token(
+async def current_user(
     request: Request,
     authorization: str | None = Header(default=None),
-) -> TokenInfo:
-    """FastAPI 依赖：校验并注入当前用户。
-
-        def endpoint(user: TokenInfo = Depends(current_token)): ...
-    """
+) -> CurrentUser:
+    """校验会话，返回当前用户。"""
     token = _token_from(request, authorization)
     if not token:
+        raise HTTPException(status_code=401, detail="未登录。", headers={"X-Auth-Code": "no_session"})
+
+    phone = sessions.resolve(token)
+    if not phone:
         raise HTTPException(
-            status_code=401,
-            detail="未登录。",
+            status_code=401, detail="登录已失效，请重新输入手机号。",
             headers={"X-Auth-Code": "no_session"},
         )
 
-    try:
-        claims = decode_claims(token)
-    except ValueError as e:
+    # 会话有效但人已被移出白名单 -> 立即失效
+    if not whitelist.is_allowed(phone):
+        sessions.revoke_all(phone)
         raise HTTPException(
-            status_code=401,
-            detail=f"登录凭证无法解析：{e}",
-            headers={"X-Auth-Code": "invalid_token"},
-        ) from e
-
-    user_id = str(claims.get("sub") or "")
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="登录凭证里没有用户标识。",
-            headers={"X-Auth-Code": "invalid_token"},
+            status_code=403, detail="您的访问权限已被移除。",
+            headers={"X-Auth-Code": "revoked"},
         )
 
-    # 让后续所有日志自动带上这个用户（不用每处手写）
-    from server.logging_config import set_user_id
+    set_user_id(phone)
+    return CurrentUser(phone=phone, is_admin=whitelist.is_admin(phone))
 
-    set_user_id(user_id)
 
-    exp = claims.get("exp")
-    if isinstance(exp, (int, float)) and exp < time.time():
-        # 交给上层去续期，而不是直接让用户重新登录
+async def admin_user(request: Request, authorization: str | None = Header(default=None)) -> CurrentUser:
+    """管理员依赖：先校验会话，再校验管理员身份。"""
+    user = await current_user(request, authorization)
+    if not user.is_admin:
         raise HTTPException(
-            status_code=401,
-            detail="登录已过期，正在续期。",
-            headers={"X-Auth-Code": "token_expired"},
+            status_code=403,
+            detail="只有管理员可以管理访问名单。",
+            headers={"X-Auth-Code": "not_admin"},
         )
-
-    role = claims.get("role")
-    if role and role != "authenticated":
-        raise HTTPException(status_code=403, detail="该凭证不是登录用户身份。")
-
-    db.set_current_token(token)
-    return TokenInfo(token=token, user_id=user_id, claims=claims)
+    return user
 
 
-async def csrf_protect(
-    request: Request,
-    x_csrf_token: str | None = Header(default=None),
-) -> None:
-    """CSRF 双提交校验。
+# ---------------------------------------------------------------------------
+# CSRF：cookie 方案必须付的代价
+# ---------------------------------------------------------------------------
+async def csrf_protect(request: Request, x_csrf_token: str | None = Header(default=None)) -> None:
+    """写操作校验双提交 cookie。
 
-    cookie 会自动被浏览器带上，所以别的网站可以诱导你的浏览器发请求。
-    防法：登录时额外下发一个**非 HttpOnly** 的随机值 kh_csrf，
-    前端把它放进 X-CSRF-Token 头。攻击者的站点读不到这个 cookie
-    （同源策略），所以伪造不出这个头。
+    登录时下发一个**非 HttpOnly** 的随机值 kh_csrf，前端把它放进
+    X-CSRF-Token 头。别的站点读不到这个 cookie（同源策略），伪造不出这个头。
     """
     if request.method.upper() in SAFE_METHODS:
         return
-
     cookie_value = (request.cookies.get(CSRF_COOKIE) or "").strip()
     header_value = (x_csrf_token or "").strip()
-
     if not cookie_value:
+        raise HTTPException(status_code=401, detail="未登录。", headers={"X-Auth-Code": "no_session"})
+    if not header_value or cookie_value != header_value:
         raise HTTPException(
-            status_code=401,
-            detail="未登录。",
-            headers={"X-Auth-Code": "no_session"},
-        )
-    if not header_value or not secrets.compare_digest(cookie_value, header_value):
-        raise HTTPException(
-            status_code=403,
-            detail="请求校验失败（CSRF）。请刷新页面后重试。",
+            status_code=403, detail="请求校验失败，请刷新页面重试。",
             headers={"X-Auth-Code": "csrf_failed"},
         )
 
 
 # ---------------------------------------------------------------------------
-# Cookie 读写
+# cookie 读写
 # ---------------------------------------------------------------------------
-def _secure_flag() -> bool:
-    """生产环境（HTTPS）必须开 Secure。本机 http 调试时可通过配置关掉。"""
+def set_session_cookies(response: Response, token: str, csrf: str, max_age: int,
+                        request: Request | None = None) -> None:
+    """下发会话 cookie。
+
+    Secure 标记按**浏览器实际看到的协议**来定，而不是写死的开关：
+        * 本机 http://127.0.0.1  -> Secure=false（否则浏览器拒绝保存）
+        * 公网 https://域名      -> Secure=true（否则 cookie 有被嗅探的风险）
+    托管部署时前面有反向代理，uvicorn 自己看到的是 http，所以要读
+    X-Forwarded-Proto 才能知道浏览器的真实协议。
+    """
     import config
 
-    return bool(getattr(config, "COOKIE_SECURE", False))
-
-
-def set_session_cookies(
-    response: Response,
-    access_token: str,
-    refresh_token: str,
-    access_max_age: int = 3600,    #短期，1 hour
-) -> str:
-    """登录/续期成功后写入两条 HttpOnly cookie + 一条 CSRF cookie。
-
-    返回生成的 csrf token（前端需要它放进请求头）。
-    """
-    csrf = secrets.token_urlsafe(24)
-    secure = _secure_flag()
-
+    secure = config.COOKIE_SECURE
+    if request is not None:
+        proto = (request.headers.get("x-forwarded-proto")
+                 or request.headers.get("x-forwarded-protocol")
+                 or request.url.scheme or "").split(",")[0].strip().lower()
+        secure = proto == "https"
     response.set_cookie(
-        ACCESS_COOKIE,
-        access_token,
-        max_age=access_max_age,
-        httponly=True,
-        samesite="lax",
-        secure=secure,
-        path="/",
+        SESSION_COOKIE, token, max_age=max_age,
+        httponly=True, samesite="lax", secure=secure, path="/",
     )
+    # 这一条必须能被 JS 读到，否则前端拿不到它放进请求头
     response.set_cookie(
-        REFRESH_COOKIE,
-        refresh_token,
-        max_age=60 * 60 * 24 * 30,   #长期，1 mouth
-        httponly=True,
-        samesite="lax",
-        secure=secure,
-        path=REFRESH_PATH,
+        CSRF_COOKIE, csrf, max_age=max_age,
+        httponly=False, samesite="lax", secure=secure, path="/",
     )
-    # 这条必须能被 JS 读到，否则前端拿不到它放进请求头
-    response.set_cookie(
-        CSRF_COOKIE,
-        csrf,
-        max_age=60 * 60 * 24 * 30,
-        httponly=False,
-        samesite="lax",
-        secure=secure,
-        path="/",
-    )
-    return csrf
 
 
 def clear_session_cookies(response: Response) -> None:
-    """清 cookie。
-
-    注意：cookie 的身份是 (名字, 域, 路径)。删除时必须覆盖**所有可能被写过的路径**，
-    否则浏览器会留下一份旧 cookie —— 表现为"点了登出，刷新后居然还是登录状态"。
-    所以这里把 "/" 和 "/session" 两个路径都清一遍。
-    """
-    for path in ("/", REFRESH_PATH):
-        response.delete_cookie(ACCESS_COOKIE, path=path)
-        response.delete_cookie(REFRESH_COOKIE, path=path)
+    """清 cookie（路径要覆盖所有可能写过的，否则浏览器会残留一份）。"""
+    for path in ("/",):
+        response.delete_cookie(SESSION_COOKIE, path=path)
         response.delete_cookie(CSRF_COOKIE, path=path)
-
-
-@contextmanager
-def db_errors():
-    """把 SupabaseError 翻译成合适的 HTTP 响应，避免裸 500。"""
-    try:
-        yield
-    except db.SupabaseError as e:
-        raise HTTPException(status_code=e.status or 502, detail=e.message) from e

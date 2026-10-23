@@ -1,60 +1,85 @@
 /* ============================================================================
-   The King's Hand —— 主题层：黑白 / 磨砂玻璃 / 彩色琉璃
+   The King's Hand —— 主题层：中性深底 + 薰衣草强调
    ============================================================================
    这一层**只负责外观**，不负责排版。
    排版、尺寸、定位全部留在 style.css 里 —— 分层是为了避免再次出现
    "改了样式把布局搞坏"或者"隐藏规则被后来的 display 顶掉"这类事故。
 
    引入顺序（index.html）：style.css -> theme.css
-   后引入的这份靠**变量重映射**把整套配色换成中性灰阶，
-   只有磨砂玻璃、琉璃、高光这些新质感才真正写选择器。
+   后引入的这份靠**变量重映射**把整套配色换掉，style.css 里引用这些变量的
+   地方（面板、卡片、输入框、文字…）自动跟着变，不用逐条去改那一千多行。
+
+   配色约定（2026-10 改版）
+   ------------------------------------------------------------------------
+   1. 大面积保持无彩色（深灰阶），**只有一个强调色**：薰衣草紫 #B48CFF。
+   2. **不使用渐变** —— 所有填充都是纯色或半透明纯色，包括底纹光晕。
+      原因：渐变在不同显示器上容易显脏，且和浅色事件卡片叠在一起会发灰。
+   3. 日历事件沿用五档低饱和浅色，维持「浅底 + 深色字」。
+   4. 强调色承担：品牌标识、今天（表头胶囊 + 整列底色）、主按钮、
+      输入框聚焦。其余一律无彩色。
    ============================================================================ */
 
 :root {
-  /* ---------- 中性灰阶：黑底、白字、灰阶层级 ----------
-     ⚠️ 必须是 R=G=B 的**完全中性**灰，不能带蓝/暖偏移。
-        带一点点蓝看起来"更高级"，但这套主题要的是纯黑白。 */
-  --ink-1000: #000000;
-  --ink-950: #050505;
-  --ink-900: #0a0a0a;
-  --ink-850: #0f0f0f;
-  --ink-800: #141414;
-  --ink-700: #1b1b1b;
-  --ink-600: #242424;
+  /* ---------- 中性灰阶：深底、浅字（略带一点紫，避免纯黑发"死"） ---------- */
+  --ink-1000: #07070a;
+  --ink-950: #0a0a0e;
+  --ink-900: #101014;
+  --ink-850: #16161c;
+  --ink-800: #1c1c24;
+  --ink-700: #24242e;
+  --ink-600: #2c2c38;
   --paper-000: #ffffff;
-  --paper-100: #f4f4f4;
-  --paper-300: #d4d4d4;
-  --paper-500: #a1a1a1;
-  --paper-600: #8b8b8b;
-  --paper-700: #6b6b6b;
+  --paper-100: #f2f1f7;
+  --paper-300: #ceccd8;
+  --paper-500: #a5a3b2;
+  --paper-600: #8b8996;
+  --paper-700: #6e6c7a;
+
+  /* ---------- 薰衣草强调色 ----------
+     accent     主色，用于文字、描边、实心底按钮上的字
+     accent-2   高光色（比主色亮），用于图标、小面积亮部
+     accent-soft / -line：半透明填充与描边，用于"今天"这类大面积但克制的标记
+     accent-ink 强调色实底上的文字色（保证对比度，不是黑色）
+     accent-hover 悬浮时提亮一档 */
+  --accent: #b48cff;
+  --accent-2: #d6c3ff;
+  --accent-soft: rgba(180, 140, 255, 0.16);
+  --accent-line: rgba(180, 140, 255, 0.42);
+  --accent-ink: #1a1230;
+  --accent-hover: #c6a5ff;
+
+  /* "今天"所在列的整列底色，比 accent-soft 再淡一档，避免盖住事件卡片 */
+  --today-col: rgba(180, 140, 255, 0.055);
+
+  /* 当前时间指示线：语义色（"现在"），刻意不用强调色，避免和选中态混淆 */
+  --now: #e0614f;
 
   /* ---------- 玻璃层 ---------- */
-  --glass-thin: rgba(255, 255, 255, 0.026);
-  --glass: rgba(255, 255, 255, 0.048);
-  --glass-strong: rgba(255, 255, 255, 0.078);
-  --glass-hover: rgba(255, 255, 255, 0.105);
-  --glass-blur: blur(22px) saturate(165%);
+  --glass-thin: rgba(255, 255, 255, 0.03);
+  --glass: rgba(255, 255, 255, 0.05);
+  --glass-strong: rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.11);
+  --glass-blur: blur(18px) saturate(150%);
 
-  /* 高光描边：玻璃片的边缘反光 */
+  /* 高光描边：面板边缘 */
   --edge: rgba(255, 255, 255, 0.085);
   --edge-bright: rgba(255, 255, 255, 0.22);
 
-  /* 事件卡片的灰阶层次：都是"白偏灰"的浅色，靠明暗区分不同事件
-     —— 卡片用浅底 + 黑字（用户要求） */
-  --luster-1: #cfcfcf;
-  --luster-2: #d9d9d9;
-  --luster-3: #e2e2e2;
-  --luster-4: #c6c6c6;
-  --luster-5: #dedede;
-  --luster-edge: rgba(0, 0, 0, 0.35);
-
-  --shadow-deep: 0 20px 60px rgba(0, 0, 0, 0.62);
+  /* ---------- 阴影 ---------- */
+  --shadow-deep: 0 20px 60px rgba(0, 0, 0, 0.6);
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.45);
 
+  /* ---------- 事件卡片五色：低饱和浅色 + 深色字 ---------- */
+  --luster-1: #e3d3ac;   /* 沙金 */
+  --luster-2: #bfd6d2;   /* 雾青 */
+  --luster-3: #cfc9e4;   /* 藕紫 */
+  --luster-4: #e6c9b8;   /* 陶土 */
+  --luster-5: #c7d9be;   /* 苔绿 */
+  --luster-ink: #1a1710;
+  --luster-edge: rgba(0, 0, 0, 0.3);
+
   /* ==========================================================================
-     把旧文件那套紫色变量重映射到中性灰阶 —— 这样 style.css 里所有
-     引用这些变量的地方（面板、卡片、输入框、文字…）自动变成黑白，
-     不用逐条去改那 1100 行。
+     把 style.css 那套变量重映射到当前配色
      ========================================================================== */
   --bg-deep: var(--ink-950);
   --bg-panel: var(--ink-900);
@@ -62,15 +87,8 @@
   --bg-card: var(--glass);
   --border-soft: var(--edge);
 
-  --text-main: var(--paper-100);
-  --text-dim: var(--paper-600);
-  --text-on-event: var(--paper-000);
-
-  /* 强调色：纯白。旧文件里所有按钮/焦点态都会变成白底黑字 */
-  --accent: var(--paper-000);
-  --accent-hover: var(--paper-300);
-
-  /* 事件卡片的五个基色（琉璃光谱） */
+  /* 事件卡片的五个基色 —— style.css 少数几个直接引用旧变量的地方
+     （overlay 卡片）依然能用，这里保留映射 */
   --event-1: var(--luster-1);
   --event-2: var(--luster-2);
   --event-3: var(--luster-3);
@@ -79,11 +97,12 @@
 }
 
 /* ==========================================================================
-   全局底：黑 + 极淡的彩色光晕（"琉璃被光扫到"的感觉，不是彩虹背景）
+   全局底：纯深色，不做任何渐变光晕
+   （上一版的 body::before 径向光晕已移除 —— 见文件头"不使用渐变"约定）
    ========================================================================== */
 html,
 body {
-  background-color: var(--ink-1000);
+  background-color: var(--ink-950);
 }
 
 body {
@@ -93,29 +112,69 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 固定在底层的光晕层：黑白主题下改成纯灰阶的柔和光，不再带颜色 */
-body::before {
-  content: "";
-  position: fixed;
-  inset: -20%;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(38% 42% at 14% 8%, rgba(255, 255, 255, 0.05), transparent 62%),
-    radial-gradient(32% 36% at 88% 12%, rgba(255, 255, 255, 0.035), transparent 64%),
-    radial-gradient(40% 46% at 76% 92%, rgba(255, 255, 255, 0.03), transparent 66%),
-    radial-gradient(30% 34% at 18% 88%, rgba(255, 255, 255, 0.04), transparent 64%);
-}
-
-/* 复选框等原生控件：默认会带系统蓝，这里统一成中性灰 */
+/* 复选框等原生控件：统一成薰衣草，不带系统蓝 */
 input[type="checkbox"] {
-  accent-color: #d4d4d4;
+  accent-color: #b48cff;
 }
 
 /* ==========================================================================
-   玻璃面板通用质感
-   注意：backdrop-filter 在不支持的浏览器上会静默失效，所以每个用到它的
-   规则都同时给了半透明底色 —— 降级后仍然是"半透明深色卡片"，不会变丑。
+   圆角与描边档位（统一收口，替代 style.css 里混用的 4/5/6/8/10px）
+   ========================================================================== */
+#chat-input,
+.login-card input,
+.form-grid input,
+.modal-box input,
+.modal-box textarea,
+#edit-title,
+#edit-start,
+#edit-end,
+#edit-location,
+#edit-note {
+  border-radius: 10px;
+}
+
+#send-btn,
+.btn-confirm,
+#memory-btn,
+#export-ics-btn,
+#export-email-btn,
+#reset-btn,
+.modal-actions button,
+button.ghost,
+.tab-btn,
+.task-card .task-actions button,
+.login-card button.primary,
+.token-chip {
+  border-radius: 8px;
+}
+
+.msg {
+  border-radius: 12px;
+}
+
+.task-card,
+.memory-block,
+.cred-state,
+.modal-note,
+.toast-item,
+.overlay-card {
+  border-radius: 10px;
+}
+
+.event-card {
+  border-radius: 7px;
+}
+
+.modal-box {
+  border-radius: 14px;
+}
+
+.login-card {
+  border-radius: 16px;
+}
+
+/* ==========================================================================
+   面板：一律半透明纯色 + 描边，不用渐变、不加彩色光边
    ========================================================================== */
 .left-panel,
 .right-panel,
@@ -138,6 +197,10 @@ input[type="checkbox"] {
   border-right: 1px solid var(--edge);
 }
 
+.right-panel {
+  border-left: 1px solid var(--edge);
+}
+
 .chat-container {
   border-bottom: 1px solid var(--edge);
 }
@@ -151,48 +214,153 @@ input[type="checkbox"] {
   border-color: var(--edge);
 }
 
-.right-panel {
-  border-left: 1px solid var(--edge);
-}
-
 /* ==========================================================================
-   标题与文字层级
+   日历头部：Week View 标题 + 中文日期范围 + 回到当前时间
    ========================================================================== */
-.chat-header h2,
+.calendar-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px 8px;
+}
+
 .calendar-title {
-  color: var(--paper-000);
-  letter-spacing: 0.035em;
+  padding: 0;
+  font-size: 11px;
   font-weight: 600;
-}
-
-.calendar-title {
-  text-transform: uppercase;
-  font-size: 11px;
-  color: var(--paper-500);
   letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-700);
 }
 
+.calendar-range {
+  font-size: 13px;
+  color: var(--paper-100);
+  margin-top: 3px;
+  letter-spacing: 0.01em;
+}
+
+/* 「今天」按钮：薰衣草描边 + 淡填充（不是实心底，避免和主按钮抢注意力） */
+.today-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.today-btn:hover {
+  background: rgba(180, 140, 255, 0.26);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+
+/* 表头：星期 + 日期，两行居中 */
 .calendar-days > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 6px 8px;
   color: var(--paper-500);
-  font-size: 11px;
-  letter-spacing: 0.05em;
+}
+
+.calendar-days .day-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 48px;
+  padding: 3px 8px;
+  border-radius: 9px;
+}
+
+.calendar-days .dw {
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: var(--paper-600);
+}
+
+.calendar-days .dn {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--paper-100);
+}
+
+/* 今天：表头胶囊 */
+.calendar-days .day-cell.today {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.calendar-days .day-cell.today .dw,
+.calendar-days .day-cell.today .dn {
+  color: var(--accent);
+}
+
+/* 今天：整列淡紫底 */
+.day-col.today-col {
+  background: var(--today-col);
+}
+
+/* 当前时间指示线（由 app.js 插入） */
+.now-line {
+  position: absolute;
+  left: 60px;
+  right: 0;
+  height: 0;
+  border-top: 1.5px solid var(--now);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.now-line::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--now);
+}
+
+.now-line span {
+  position: absolute;
+  right: 6px;
+  top: -9px;
+  font-size: 10px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--now);
+  background: var(--ink-950);
+  padding: 0 4px;
+  border-radius: 4px;
 }
 
 /* ==========================================================================
    按钮
    ========================================================================== */
-/* 白底按钮统一配黑字。
-   注意 #modal-save：它只有 id、没有 .primary 类，很容易漏掉 ——
-   漏掉的话就是"白底白字"，按钮上的字直接看不见。 */
+/* 强调色实底按钮統一配深紫字。
+   ⚠️ #modal-save 只有 id、没有 .primary 类，很容易漏掉 ——
+      漏掉就是"紫底紫字"，按钮上的字直接看不见。 */
 #send-btn,
 .btn-confirm,
 #modal-save,
 .login-card button.primary,
 .modal-actions button.primary {
-  background: var(--paper-000);
-  color: #000000;
-  border: 1px solid var(--paper-000);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
   font-weight: 600;
   letter-spacing: 0.02em;
   transition: transform 0.12s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -203,31 +371,23 @@ input[type="checkbox"] {
 #modal-save:hover,
 .login-card button.primary:hover:not(:disabled),
 .modal-actions button.primary:hover {
-  background: var(--paper-300);
-  border-color: var(--paper-300);
-  color: #000000;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-ink);
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 22px rgba(180, 140, 255, 0.2);
 }
 
+/* 次级按钮：透明底 + 描边，hover 才上色 */
 #export-ics-btn,
 #export-email-btn,
 #reset-btn,
+#memory-btn,
 .modal-actions button {
   background: transparent;
   border: 1px solid var(--edge);
-  color: var(--paper-500);
-  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
-}
-
-/* 「我的记忆」和上面几个保持一致：同样的透明底 + 同样的尺寸，
-   不额外加玻璃块（否则它在按钮组里显得突兀） */
-#memory-btn {
-  background: transparent;
-  border: 1px solid var(--edge);
-  color: var(--paper-500);
+  color: var(--paper-600);
   padding: 3px 8px;
-  border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
   transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
@@ -260,7 +420,6 @@ input[type="checkbox"] {
   border-color: var(--edge);
 }
 
-/* "API Key 设置 / 退出登录"这类次级按钮：浅灰磨砂玻璃 */
 button.ghost {
   background: var(--glass);
   border: 1px solid var(--edge);
@@ -306,9 +465,10 @@ button.ghost:hover {
 .form-grid input:focus,
 .modal-box input:focus,
 .modal-box textarea:focus {
-  border-color: var(--edge-bright);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.07);
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   background: rgba(0, 0, 0, 0.55);
+  outline: none;
 }
 
 /* ==========================================================================
@@ -319,11 +479,11 @@ button.ghost:hover {
 }
 
 .msg.user {
-  background: var(--paper-000);
-  color: var(--ink-1000);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 500;
-  border-color: var(--paper-000);
-  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(180, 140, 255, 0.18);
 }
 
 .msg.assistant {
@@ -334,49 +494,121 @@ button.ghost:hover {
   color: var(--paper-100);
 }
 
+/* 流式输出：气泡末尾跟一个闪烁的光标，告诉用户"还在写"。
+   第一个 token 到达前气泡是空的，全靠这个光标撑住反馈。 */
+.msg.assistant.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 13px;
+  margin-left: 5px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: kh-caret 1s steps(2, start) infinite;
+}
+
+@keyframes kh-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.chat-input-area input:disabled,
+.chat-input-area button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 推理过程：默认折叠的一条，点开才展开，
+   避免工具调用日志把正事顶出屏幕 */
 .steps {
-  color: var(--paper-700);
+  align-self: flex-start;
+  max-width: 86%;
+  font-size: 11px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--glass);
+  overflow: hidden;
   font-style: normal;
+  opacity: 0.95;
+}
+
+.steps > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--paper-600);
+  font-size: 11.5px;
+  user-select: none;
+}
+
+.steps > summary::-webkit-details-marker {
+  display: none;
+}
+
+.steps > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 5px;
+  height: 5px;
+  border-right: 1.4px solid var(--paper-600);
+  border-bottom: 1.4px solid var(--paper-600);
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.16s ease;
+}
+
+.steps[open] > summary::after {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.steps-body {
+  padding: 0 11px 8px;
+  color: var(--paper-700);
+  white-space: pre-wrap;
+  line-height: 1.7;
   font-family: ui-monospace, Consolas, monospace;
-  opacity: 0.85;
+}
+
+/* 流式推理过程：一行一个，工具调用与"思考"文字混排 */
+.reason-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reason-line + .reason-line {
+  margin-top: 3px;
 }
 
 /* ==========================================================================
-   日历事件卡片
-   用户要求：浅灰底（白偏灰）+ 黑字，越简单越好。
-   所以这里是"亮色卡片"：浅灰纯色 + 深色文字 + 一圈深色细边。
-   五级明度用来区分不同事件，但全部落在"浅灰"这个区间里。
+   日历事件卡片：五档低饱和浅色 + 深色字
+   左侧一道 3px 竖条把色号"钉"住，比整块填色更稳。
    ========================================================================== */
 .event-card {
-  /* 兜底用变量；具体颜色由下面 nth-of-type 按 5 级循环分配 */
-  background: var(--event-color, var(--luster-1)) !important;
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  border-radius: 5px;
-  color: #101010;
-  font-size: 11px;
+  background: var(--luster-1) !important;
+  border: 1px solid var(--luster-edge);
+  border-left: 3px solid var(--luster-edge);
+  border-radius: 7px;
+  color: var(--luster-ink);
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  line-height: 1.35;
   text-shadow: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 2px 8px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  padding: 4px 7px;
   position: absolute;
-  transition: transform 0.14s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  transition: transform 0.14s ease, box-shadow 0.18s ease;
 }
 
-/* 只有很淡的一层顶部反光，保住玻璃感但不显脏 */
-.event-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.32), transparent 60%);
-}
-
-/* --------------------------------------------------------------------------
-   五级浅灰循环 —— 都在"白偏灰"区间内（#cfcfcf ~ #e2e2e2）
-   -------------------------------------------------------------------------- */
+/* 五色循环（!important 覆盖 app.js 写在 style 上的旧值，保持依旧生效） */
 .event-card:nth-of-type(5n + 1) {
   background: var(--luster-1) !important;
 }
@@ -393,48 +625,54 @@ button.ghost:hover {
   background: var(--luster-5) !important;
 }
 
+.event-card .ev-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-card .ev-sub {
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.68;
+  margin-top: 1px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .event-card:hover {
   transform: translateY(-1px);
-  filter: brightness(1.06);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 6px 18px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
 /* ==========================================================================
-   任务面板 —— 用户要求：背景改成纯浅灰
-   （原来和聊天区一样是近黑半透明，所以整块看起来"糊在一起"）
+   任务面板
    ========================================================================== */
 .task-container {
-  background: #1e1e1e;
+  background: var(--ink-850);
   backdrop-filter: blur(18px) saturate(120%);
   -webkit-backdrop-filter: blur(18px) saturate(120%);
   border-top: 1px solid var(--edge);
 }
 
-/* 浅灰底上的文字对比要跟上，否则会发灰看不清 */
 .task-container .tab-btn {
   color: var(--paper-300);
 }
 
-/* 选中的 tab：用一层浅白底表示选中（不是白底按钮，所以文字保持白） */
 .task-container .tab-btn.active {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--glass-strong);
   color: var(--paper-000);
 }
 
 /* ⚠️ 这里**不要**给 #confirm-all-btn 设 color！
-   它是白底按钮，文字必须保持黑色（规则见文件前部"白底按钮统一配黑字"）。
-   之前这里写了 color: var(--paper-000)，优先级又比那条高，
-   结果把"全部确认"的字盖回白色 —— 白底白字，看不见。 */
+   它是强调色实底按钮，文字必须用 --accent-ink，被盖成浅色就看不见了。 */
 
-/* ==========================================================================
-   任务卡片（待确认 / 待计划）
-   ========================================================================== */
 .task-card {
   background: var(--glass);
   border: 1px solid var(--edge);
-  border-radius: 10px;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.14s ease;
@@ -456,26 +694,24 @@ button.ghost:hover {
   color: var(--paper-600);
 }
 
-/* 选择器与 style.css 保持同样的具体度（.task-card .task-actions button.xxx），
-   避免出现"靠引入顺序才生效"这种脆弱写法 */
 .task-card .task-actions button.confirm {
-  background: var(--paper-000);
-  border-color: var(--paper-000);
-  color: #000000;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
 .task-card .task-actions button.confirm:hover {
-  background: var(--paper-300);
-  border-color: var(--paper-300);
-  color: #000000;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-ink);
 }
 
 .task-card .task-actions button.modify,
 .task-card .task-actions button.delete {
   background: var(--glass);
   border: 1px solid var(--edge);
-  color: var(--paper-500);
+  color: var(--paper-600);
 }
 
 .task-card .task-actions button.modify:hover,
@@ -486,46 +722,32 @@ button.ghost:hover {
 }
 
 /* ==========================================================================
-   登录页：玻璃卡 + 一圈彩色琉璃边
+   登录页
    ========================================================================== */
 .login-screen {
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%),
-    var(--ink-1000);
+  background: var(--ink-1000);
 }
 
 .login-card {
   position: relative;
-  background: var(--glass-strong);
-  backdrop-filter: blur(30px) saturate(185%);
-  -webkit-backdrop-filter: blur(30px) saturate(185%);
+  background: var(--ink-850);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
   border: 1px solid var(--edge);
-  border-radius: 18px;
   box-shadow: var(--shadow-deep);
   overflow: hidden;
 }
 
-/* 卡片顶部的一圈高光边（黑白版：纯灰阶过渡，不再用彩色光谱） */
+/* 顶部一道 2px 的强调色细线替代原来的锥形渐变描边 */
 .login-card::before {
   content: "";
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--accent);
   pointer-events: none;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from 140deg,
-    rgba(255, 255, 255, 0.55),
-    rgba(255, 255, 255, 0.12),
-    rgba(255, 255, 255, 0.42),
-    rgba(255, 255, 255, 0.1),
-    rgba(255, 255, 255, 0.55)
-  );
-  opacity: 0.55;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
 }
 
 .login-card h1 {
@@ -549,8 +771,8 @@ button.ghost:hover {
 }
 
 .login-tab.active {
-  background: var(--paper-000);
-  color: var(--ink-1000);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -559,9 +781,9 @@ button.ghost:hover {
 }
 
 .login-error {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: #e4e4e4;
+  background: rgba(224, 97, 79, 0.12);
+  border: 1px solid rgba(224, 97, 79, 0.42);
+  color: #f0b3a8;
 }
 
 /* ==========================================================================
@@ -576,7 +798,6 @@ button.ghost:hover {
 .modal-box {
   background: var(--ink-850);
   border: 1px solid var(--edge);
-  border-radius: 16px;
   box-shadow: var(--shadow-deep);
 }
 
@@ -585,7 +806,8 @@ button.ghost:hover {
   letter-spacing: 0.02em;
 }
 
-.modal-note {
+.modal-note,
+.cred-state {
   background: rgba(0, 0, 0, 0.34);
   border: 1px solid var(--edge);
   color: var(--paper-600);
@@ -593,12 +815,6 @@ button.ghost:hover {
 
 .modal-note strong {
   color: var(--paper-000);
-}
-
-.cred-state {
-  background: rgba(0, 0, 0, 0.34);
-  border: 1px solid var(--edge);
-  color: var(--paper-600);
 }
 
 /* ==========================================================================
@@ -633,9 +849,9 @@ button.ghost:hover {
   background: var(--glass-hover);
 }
 
-/* 归纳出来的偏好：左侧一道亮灰条，一眼分辨"它推的"和"你说的" */
+/* 归纳出来的偏好：左侧一道薰衣草色条 */
 .memory-list li.inferred {
-  border-left: 3px solid #8a8a8a;
+  border-left: 3px solid var(--accent);
   background: var(--glass);
 }
 
@@ -649,24 +865,23 @@ button.ghost:hover {
 
 .memory-footer button.danger,
 .modal-actions button.danger {
-  border-color: rgba(255, 255, 255, 0.32);
-  color: var(--paper-300);
+  border-color: rgba(224, 97, 79, 0.45);
+  color: #e7a79c;
   background: transparent;
 }
 
 .memory-footer button.danger:hover,
 .modal-actions button.danger:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.5);
-  color: var(--paper-000);
+  background: rgba(224, 97, 79, 0.14);
+  border-color: rgba(224, 97, 79, 0.75);
+  color: #f6c7be;
 }
 
 /* ==========================================================================
-   账号栏 / 用户标识 —— 用户信息做成浅灰磨砂玻璃
-   （原来压在黑底上的纯白太抢眼，视觉上盖过了正文）
+   账号栏 / 用户标识
    ========================================================================== */
 .account-bar {
-  background: #1e1e1e;
+  background: var(--ink-850);
   backdrop-filter: blur(16px) saturate(120%);
   -webkit-backdrop-filter: blur(16px) saturate(120%);
   border-bottom: 1px solid var(--edge);
@@ -674,13 +889,12 @@ button.ghost:hover {
 
 .user-chip {
   color: var(--paper-300);
-  background: rgba(255, 255, 255, 0.055);
+  background: var(--glass);
   border: 1px solid var(--edge);
   border-radius: 999px;
   padding: 3px 12px;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 11px;
-  letter-spacing: 0.01em;
   backdrop-filter: blur(12px) saturate(130%);
   -webkit-backdrop-filter: blur(12px) saturate(130%);
   transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
@@ -688,7 +902,7 @@ button.ghost:hover {
 
 .user-chip:hover {
   color: var(--paper-000);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--glass-hover);
   border-color: var(--edge-bright);
 }
 
@@ -714,22 +928,22 @@ button.ghost:hover {
   -webkit-backdrop-filter: blur(14px) saturate(150%);
   border: 1px solid rgba(255, 255, 255, 0.22);
   color: var(--paper-000);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-/* 上午 / 下午块：黑白版用两级明度区分，不再用彩色渐变 */
+/* 上午 / 下午：两级半透明纯色区分 */
 .overlay-card.morning {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .overlay-card.afternoon {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .bottom-handle {
   background: var(--glass);
   border-top: 1px solid var(--edge);
-  color: var(--paper-500);
+  color: var(--paper-600);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   transition: color 0.16s ease, background 0.16s ease;
@@ -738,20 +952,22 @@ button.ghost:hover {
 .bottom-handle:hover {
   color: var(--paper-000);
   background: var(--glass-hover);
+  border-top-color: var(--accent-line);
 }
 
 .next-week-overlay {
-  background: rgba(5, 5, 5, 0.86);
+  background: rgba(10, 10, 14, 0.9);
   backdrop-filter: blur(26px) saturate(160%);
   -webkit-backdrop-filter: blur(26px) saturate(160%);
   border-top: 1px solid var(--edge);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .overlay-section-title {
   color: var(--paper-700);
-  text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 10px;
+  text-transform: uppercase;
 }
 
 /* ==========================================================================
@@ -760,23 +976,19 @@ button.ghost:hover {
 .toast-item {
   background: var(--ink-800);
   border: 1px solid var(--edge);
-  border-left: 3px solid var(--paper-000);
+  border-left: 3px solid var(--accent);
   color: var(--paper-100);
   box-shadow: var(--shadow-soft);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
 }
 
-.toast-item.ok {
-  border-left-color: var(--paper-000);
-}
-
 .toast-item.error {
-  border-left-color: #9a9a9a;
+  border-left-color: var(--now);
 }
 
 /* ==========================================================================
-   滚动条（深色细条，和整体一致）
+   滚动条
    ========================================================================== */
 ::-webkit-scrollbar {
   width: 8px;
@@ -796,7 +1008,6 @@ button.ghost:hover {
   background: rgba(255, 255, 255, 0.24);
 }
 
-/* 旧文件里把内部滚动条宽度设成 0 隐藏了，这里保持那个决定（只保留弹层可见） */
 .calendar-body::-webkit-scrollbar,
 .chat-history::-webkit-scrollbar,
 .task-list::-webkit-scrollbar,

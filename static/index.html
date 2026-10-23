@@ -3,37 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The King's Hand</title>
+  <title>The King&rsquo;s Hand · 智能日程助手</title>
+  <!-- favicon：先看 ICO（兼容性最好），支持 SVG 的浏览器会用矢量那份 -->
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
-  <!-- 主题层：只负责外观（黑白 / 磨砂玻璃 / 彩色琉璃），必须放在 style.css 之后 -->
+  <!-- 主题层：只负责外观（黑白 / 磨砂玻璃），必须放在 style.css 之后 -->
   <link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
 
-  <!-- ==================== 登录 / 注册 ==================== -->
+  <!-- ==================== 登录（手机号白名单） ==================== -->
   <div id="login-screen" class="login-screen">
     <div class="login-card">
       <h1>The King&rsquo;s Hand</h1>
-      <p class="login-sub">你的私人日历助手</p>
-
-      <div class="login-tabs">
-        <button id="login-tab-login" class="login-tab active">登录</button>
-        <button id="login-tab-register" class="login-tab">注册</button>
-      </div>
+      <p class="login-sub">自然语言排日程 · 查天气 · 避冲突</p>
 
       <form id="login-form" autocomplete="on">
-        <label>邮箱
-          <input id="login-email" type="email" autocomplete="username" placeholder="you@example.com">
+        <label>手机号
+          <input id="login-phone" type="tel" inputmode="numeric" maxlength="11"
+                 autocomplete="tel" placeholder="11 位手机号">
         </label>
-        <label>密码
-          <input id="login-password" type="password" autocomplete="current-password" placeholder="至少 6 位">
+
+        <!-- 这两段默认藏着：后端返回 need_password / need_setup 时才展开，
+             避免普通成员看到一堆用不上的框 -->
+        <label id="login-password-field" class="hidden">管理员密码
+          <input id="login-password" type="password" autocomplete="current-password"
+                 placeholder="请输入管理员密码">
         </label>
+        <div id="login-new-password-field" class="hidden">
+          <label>设置密码
+            <input id="login-new-password" type="password" autocomplete="new-password"
+                   placeholder="至少 6 位">
+          </label>
+          <label>确认密码
+            <input id="login-new-password2" type="password" autocomplete="new-password"
+                   placeholder="再输入一次">
+          </label>
+        </div>
+
         <div id="login-error" class="login-error hidden"></div>
-        <button id="login-submit" type="submit" class="primary">登录</button>
+        <button id="login-submit" type="submit" class="primary">进入</button>
       </form>
 
-      <button id="login-resend" class="ghost hidden">没收到确认邮件？重新发送</button>
-      <p id="login-hint" class="login-hint">用你的邮箱和密码登录。</p>
+      <p id="login-hint" class="login-hint">只有名单内的手机号可以进入。</p>
     </div>
   </div>
 
@@ -50,15 +64,15 @@
             </label>
             <button id="memory-btn" title="查看和修改 AI 记住的关于你的信息">我的记忆</button>
             <button id="export-ics-btn">下载 .ics</button>
-            <button id="export-email-btn">发送到邮箱</button>
             <button id="reset-btn" title="只清空对话上下文，不动日历和记忆">清空对话</button>
           </div>
         </div>
         <div class="account-bar">
           <span id="user-chip" class="user-chip" title="点击配置 API Key">…</span>
           <span class="account-actions">
-            <button id="settings-btn" class="ghost">API Key setting</button>
-            <button id="logout-btn" class="ghost">Log out</button>
+            <button id="admin-btn" class="ghost hidden">访问管理</button>
+            <button id="settings-btn" class="ghost hidden">API Key 设置</button>
+            <button id="logout-btn" class="ghost">退出登录</button>
           </span>
         </div>
         <div id="chat-history" class="chat-history"></div>
@@ -72,7 +86,7 @@
         <div class="task-tabs">
           <button class="tab-btn active" data-tab="confirmed">To be confirmed</button>
           <button class="tab-btn" data-tab="planned">To be planned</button>
-          <button id="confirm-all-btn" class="btn-confirm">All confirmed</button>
+          <button id="confirm-all-btn" class="btn-confirm">全部确认</button>
         </div>
         <div id="task-list" class="task-list"></div>
       </div>
@@ -81,7 +95,13 @@
     <div class="right-panel">
       <div id="main-calendar" class="main-calendar">
         <div class="calendar-header">
-          <div class="calendar-title">Week View</div>
+          <div class="calendar-header-top">
+            <div>
+              <div class="calendar-title">Week View</div>
+              <div class="calendar-range" id="calendar-range"></div>
+            </div>
+            <button id="cal-today" class="today-btn" title="滚动到当前时间">今天</button>
+          </div>
           <div class="calendar-days"></div>
         </div>
         <div class="calendar-body" id="calendar-body"></div>
@@ -138,29 +158,18 @@
   <!-- ==================== API Key 设置 ==================== -->
   <div id="credentials-modal" class="modal-overlay hidden">
     <div class="modal-box wide">
-      <h3>API Key 与邮箱设置</h3>
+      <h3>DeepSeek API Key</h3>
       <p class="modal-note">
-        这些内容会<strong>加密后保存在你自己的账号下</strong>，只有你能取用 ——
-        即使数据库被拖走，别人拿到的也只是密文。留空表示不修改已保存的值。
+        用于 AI 对话。在 platform.deepseek.com 创建。<br>
+        ⚠️ 演示版把 Key <strong>明文</strong>保存在服务端数据文件里，
+        正式上线前应改成加密存储。
       </p>
-
       <div class="form-grid">
-        <label>DeepSeek API Key
+        <label>API Key
           <input id="cred-key" type="password" autocomplete="off" spellcheck="false">
-          <small>用于 AI 对话。在 platform.deepseek.com 创建。</small>
-        </label>
-        <label>QQ 邮箱（可选）
-          <input id="cred-user" type="text" autocomplete="off" spellcheck="false">
-          <small>用于把日历以附件发到邮箱。</small>
-        </label>
-        <label>QQ 邮箱授权码（可选）
-          <input id="cred-pass" type="password" autocomplete="off" spellcheck="false">
-          <small>注意：是 16 位授权码，不是你登录 QQ 邮箱的密码。</small>
         </label>
       </div>
-
       <div id="cred-state" class="cred-state"></div>
-
       <div class="modal-actions">
         <button id="cred-clear" class="danger">清空已保存的</button>
         <button id="cred-save" class="primary">保存</button>
@@ -174,8 +183,8 @@
     <div class="modal-box wide">
       <h3>我的记忆</h3>
       <p class="modal-note">
-        这些是 AI 记住的关于你的信息。它每次对话都会读到，
-        所以<strong>记错了就在这里直接删掉</strong>。
+        这些是 AI 记住的关于你的信息，每次对话都会读到。
+        <strong>记错了就在这里直接删掉。</strong>
       </p>
       <div id="memory-body" class="memory-body"></div>
       <div class="modal-actions">
@@ -184,11 +193,62 @@
     </div>
   </div>
 
+  <!-- ==================== 访问管理（仅管理员） ==================== -->
+  <div id="admin-modal" class="modal-overlay hidden">
+    <div class="modal-box wide">
+      <h3>访问管理</h3>
+      <p class="modal-note">
+        只有名单里的手机号能登录。<strong>第一个成功登录的手机号会自动成为管理员，
+        并当场设置密码。</strong>之后管理员每次登录都要输密码。
+      </p>
+
+      <!-- 全站 DeepSeek Key：所有成员共用这一把，普通成员不需要自己填 -->
+      <div class="form-grid">
+        <label>全站 DeepSeek API Key（所有成员共用）
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input id="admin-api-key" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="sk-…" style="flex:1 1 220px; min-width:0;">
+            <button id="admin-api-key-save" class="primary" style="white-space:nowrap;">保存</button>
+            <button id="admin-api-key-clear" style="white-space:nowrap;">清空</button>
+          </div>
+          <div id="admin-api-key-state" class="cred-state"></div>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>修改我的登录密码
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input id="admin-old-pwd" type="password" autocomplete="current-password"
+                   placeholder="当前密码" style="max-width:150px;">
+            <input id="admin-new-pwd" type="password" autocomplete="new-password"
+                   placeholder="新密码（至少 6 位）" style="max-width:190px;">
+            <button id="admin-pwd-save" style="white-space:nowrap;">修改密码</button>
+          </div>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>添加手机号
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input id="admin-phone" type="tel" inputmode="numeric" maxlength="11" placeholder="11 位手机号">
+            <input id="admin-name" type="text" placeholder="备注名（可选）" style="max-width:140px;">
+            <button id="admin-add" class="primary" style="white-space:nowrap;">添加</button>
+          </div>
+        </label>
+      </div>
+
+      <div id="admin-list" class="memory-body"></div>
+      <div class="modal-actions">
+        <button id="admin-close">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script src="/static/api.js"></script>
+  <script src="/static/store.js"></script>
   <script src="/static/app.js"></script>
-  <script src="/static/ui.js"></script>
   <script src="/static/session.js"></script>
 </body>
 </html>

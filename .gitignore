@@ -3,10 +3,19 @@
 venv/
 env/
 
-# 密钥
+# 环境变量（可能含密钥）
 .env
 .env.*
 !.env.example
+
+# 数据文件（隐私，不上传）
+data/*.json
+!data/.gitkeep
+
+# SQLite 数据库 —— 里面有明文 API Key、管理员密码哈希和全部日程，绝不能提交
+data/*.db
+data/*.db-wal
+data/*.db-shm
 
 # Python 缓存
 __pycache__/
@@ -14,9 +23,14 @@ __pycache__/
 *.pyo
 *.pyd
 
-# 数据文件（隐私，不上传）
-data/*.json
-!data/.gitkeep
+# 本地工具痕迹与过程稿（只存在于开发机）
+.workbuddy/
+.wbapp_*.genie
+preview/
+
+# 证书与备份
+certs/
+backup/
 
 # IDE
 .vscode/
