@@ -23,6 +23,11 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from agent.date_tools import resolve_date, resolve_datetime
+from agent.geo_tools import (
+    make_get_location,
+    make_plan_traffic,
+    make_search_place,
+)
 from agent.history_tools import make_search_history
 from agent.llm import build_llm, build_memory_llm
 from agent.weather_openmeteo import get_weather_forecast
@@ -65,9 +70,18 @@ def emit_tasks(tasks: list[TaskItem]) -> str:
     return f"已捕获 {len(tasks)} 个任务"
 
 
-def build_tools(phone: str = "") -> list:
-    """工具清单。传了手机号才挂上"查历史"——工具要按用户隔离。"""
-    tools = [resolve_date, resolve_datetime, get_weather_forecast, emit_tasks]
+def build_tools(phone: str = "", location: dict | None = None) -> list:
+    """工具清单。
+
+    * phone：挂了才有"查历史"（要按用户隔离）
+    * location：浏览器带上来（或 IP 兜底）的定位，绑给位置/路线/地点三个工具
+    """
+    tools = [
+        resolve_date, resolve_datetime, get_weather_forecast, emit_tasks,
+        make_get_location(location),
+        make_plan_traffic(location),
+        make_search_place(location),
+    ]
     if phone:
         tools.append(make_search_history(phone))
     return tools
@@ -175,6 +189,15 @@ SYSTEM_PROMPT = """你是 The King's Hand，一个日历助手。
 
    查到历史之后：它是"过去"，不是待办。不要把它当成当前任务列表，
    也不要把已经做过的事当成新任务重复添加，除非用户明确说要再做一次。
+
+10. 位置相关工具（只在需要"用户在哪"时才用）：
+   - 查天气但用户没说城市 → 先调 get_current_location，把返回的坐标传给 get_weather_forecast。
+   - 规划路线但用户没说起点 → plan_traffic 会自动用当前位置，不用传 origin。
+   - "附近的加油站""最近的麦当劳" → 先 search_place；要路线再把地点名传给 plan_traffic。
+   - 用户已经说了城市或起点 → 直接用他说的，不要再调定位，浪费一次往返。
+   - 路况只有"当前时刻"：用户说"明天下午三点"时，把 when 填进去，
+     并把工具返回的"仅供参考"原样转告用户，绝不能把它说成那时的路况。
+   - 定位失败（用户拒绝授权、没有 IP 结果）时，直接问用户所在城市，不要猜。
 """
 
 
@@ -369,7 +392,8 @@ def _split_duplicates(tasks: list[dict], events, pending) -> tuple[list[dict], l
     return fresh, duplicated
 
 
-def _build_executor(deepseek_key: str, phone: str = "") -> AgentExecutor:
+def _build_executor(deepseek_key: str, phone: str = "",
+                    location: dict | None = None) -> AgentExecutor:
     """构造 agent。非流式与流式共用同一套提示词与工具，避免两边行为漂移。"""
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
@@ -378,7 +402,7 @@ def _build_executor(deepseek_key: str, phone: str = "") -> AgentExecutor:
         ("placeholder", "{agent_scratchpad}"),
     ])
     llm = build_llm(deepseek_key)
-    tools = build_tools(phone)          # 只构造一次：每次调用都会新绑一个 phone 闭包
+    tools = build_tools(phone, location)   # 每次调用都会新绑 phone / location 闭包
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(
         agent=agent, tools=tools,
@@ -417,6 +441,7 @@ def chat(
     *,
     deepseek_key: str,
     phone: str = "",
+    location: dict | None = None,
     events: list[dict] | None = None,
     pending: dict | None = None,
     memory_text: str = "（暂无长期记忆）",
@@ -424,10 +449,10 @@ def chat(
 ) -> dict:
     """处理一轮对话（**非流式**，一次返回完整结果）。
 
-    日程/待办/记忆由调用方传入 —— agent 层不碰存储；phone 只用来绑定
-    "查历史"工具（工具要按用户隔离）。
+    日程/待办/记忆由调用方传入 —— agent 层不碰存储；phone 与 location 只用来
+    绑定"查历史"和位置类工具。
     """
-    executor = _build_executor(deepseek_key, phone)
+    executor = _build_executor(deepseek_key, phone, location)
     result = executor.invoke(_build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,
@@ -467,6 +492,7 @@ async def chat_stream(
     *,
     deepseek_key: str,
     phone: str = "",
+    location: dict | None = None,
     events: list[dict] | None = None,
     pending: dict | None = None,
     memory_text: str = "（暂无长期记忆）",
@@ -488,7 +514,7 @@ async def chat_stream(
     一次模型调用 = 一段；最后一段（agent 结束后不再调工具的那次）才是回答。
     所以前端要在收到 segment 事件时，把上一段文字挪进「推理过程」区。
     """
-    executor = _build_executor(deepseek_key, phone)
+    executor = _build_executor(deepseek_key, phone, location)
     inputs = _build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,

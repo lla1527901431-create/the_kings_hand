@@ -72,12 +72,15 @@ const Store = {
   },
 
   _chatBody(message, context) {
-    return {
+    const body = {
       message,
       events: (context && context.events) || [],
       pending: (context && context.pending) || {},
       history: (context && context.history) || [],
     };
+    // 浏览器定位：没有就不传，服务端会用客户端 IP 兜底
+    if (context && context.location) body.location = context.location;
+    return body;
   },
   resetChat() {
     return api("/reset", { method: "POST" });

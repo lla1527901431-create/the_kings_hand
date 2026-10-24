@@ -187,6 +187,39 @@ function setStreaming(on) {
   chatInput.placeholder = on ? "正在回复…" : "输入任务，例如：明天下午三点开会";
 }
 
+// 位置：浏览器定位，缓存 5 分钟。用户拒绝或超时就返回 null，
+// 服务端会用客户端 IP 做城市级兜底（所以这里失败不影响功能）。
+let cachedLocation = { at: 0, value: null };
+
+function browserLocation() {
+  if (Date.now() - cachedLocation.at < 5 * 60 * 1000) {
+    return Promise.resolve(cachedLocation.value);
+  }
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    const timer = setTimeout(() => resolve(null), 3000);   // 授权弹窗没点就不等
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        clearTimeout(timer);
+        const value = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy || 0),
+          source: "browser",
+        };
+        cachedLocation = { at: Date.now(), value };
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        cachedLocation = { at: Date.now(), value: null };
+        resolve(null);
+      },
+      { enableHighAccuracy: true, timeout: 3000, maximumAge: 60000 }
+    );
+  });
+}
+
 async function send() {
   const text = chatInput.value.trim();
   if (!text || streaming) return;
@@ -203,10 +236,12 @@ async function send() {
   let output = "";
 
   try {
+    const location = await browserLocation();
     await Store.chatStream(text, {
       events: confirmedEvents,
       pending: pendingData,
       history: chatContext.slice(-10),
+      location,
     }, async (ev) => {
       if (ev.type === "token") {
         output += ev.text;

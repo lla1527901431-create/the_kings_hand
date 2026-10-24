@@ -1,13 +1,19 @@
-"""高德 Web 服务客户端：地址解析 + 驾车路况。
+"""高德 Web 服务客户端：地址解析、逆地理、IP 定位、POI、驾车路况。
 
-只做两件本项目需要的事：
+本项目需要的几件事：
 
-    geocode("珠海市香洲区情侣路")          -> (113.576, 22.270)
-    drive_summary("家", "宝安机场")        -> {duration_min, distance_km, ...}
+    geocode("珠海市香洲区情侣路")   -> (113.576, 22.270)
+    regeo(113.576, 22.270)          -> {"city": "珠海市", "address": "..."}
+    ip_location("1.2.3.4")          -> {"city": "珠海市", "location": (lng, lat)}
+    poi_search("加油站", "珠海市")   -> [{name, address, location, distance}]
+    drive_summary("家", "宝安机场")  -> {duration_min, distance_km, ...}
 
 为什么不用高德的「交通态势」接口：它属于高级服务，要商务申请，而且只覆盖
 部分城市、返回的是区域快照。路径规划是基础服务，申请即用，还能直接回答
 "从 A 到 B 现在要多久、哪一段堵"。
+
+坐标系：高德全站用 GCJ-02；浏览器 Geolocation 给的是 WGS-84，差几百米，
+所以这里提供 wgs84_to_gcj02()（纯本地计算，不额外消耗配额）。
 
 Key 由管理员在「访问管理」里配置，存在 app_settings；没配时抛
 AmapNotConfigured，由上层决定怎么提示用户。
@@ -15,6 +21,7 @@ AmapNotConfigured，由上层决定怎么提示用户。
 
 from __future__ import annotations
 
+import math
 import re
 import time
 
@@ -206,3 +213,132 @@ def drive_summary(origin: str, destination: str, city: str = "") -> dict:
 def clear_cache() -> None:
     """测试或手动刷新用。"""
     _cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# 坐标系转换（WGS-84 → GCJ-02）
+# ---------------------------------------------------------------------------
+# 浏览器 Geolocation 给的是 GPS 原始坐标（WGS-84），高德用的是国测局加密坐标
+# （GCJ-02），两者在国内相差几百米。这里用公开的偏移算法本地换算，
+# 不额外调接口、不占配额；境外坐标原样返回。
+_A = 6378245.0
+_EE = 0.00669342162296594323
+
+
+def _out_of_china(lng: float, lat: float) -> bool:
+    return not (73.66 < lng < 135.05 and 3.86 < lat < 53.55)
+
+
+def _transform_lat(x: float, y: float) -> float:
+    ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * math.sqrt(abs(x))
+    ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(y * math.pi) + 40.0 * math.sin(y / 3.0 * math.pi)) * 2.0 / 3.0
+    ret += (160.0 * math.sin(y / 12.0 * math.pi) + 320 * math.sin(y * math.pi / 30.0)) * 2.0 / 3.0
+    return ret
+
+
+def _transform_lng(x: float, y: float) -> float:
+    ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * math.sqrt(abs(x))
+    ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(x * math.pi) + 40.0 * math.sin(x / 3.0 * math.pi)) * 2.0 / 3.0
+    ret += (150.0 * math.sin(x / 12.0 * math.pi) + 300.0 * math.sin(x / 30.0 * math.pi)) * 2.0 / 3.0
+    return ret
+
+
+def wgs84_to_gcj02(lat: float, lng: float) -> tuple[float, float]:
+    """WGS-84 → GCJ-02。返回 (经度, 纬度)，和高德一致。"""
+    lat, lng = float(lat), float(lng)
+    if _out_of_china(lng, lat):
+        return round(lng, 6), round(lat, 6)
+
+    dlat = _transform_lat(lng - 105.0, lat - 35.0)
+    dlng = _transform_lng(lng - 105.0, lat - 35.0)
+    radlat = lat / 180.0 * math.pi
+    magic = math.sin(radlat)
+    magic = 1 - _EE * magic * magic
+    sqrtmagic = math.sqrt(magic)
+    dlat = (dlat * 180.0) / ((_A * (1 - _EE)) / (magic * sqrtmagic) * math.pi)
+    dlng = (dlng * 180.0) / (_A / sqrtmagic * math.cos(radlat) * math.pi)
+    return round(lng + dlng, 6), round(lat + dlat, 6)
+
+
+# ---------------------------------------------------------------------------
+# 逆地理编码 / IP 定位 / POI 搜索
+# ---------------------------------------------------------------------------
+def regeo(lng: float, lat: float) -> dict:
+    """坐标 → 地址信息。失败时返回空字段（不抛异常，定位场景可降级）。"""
+    try:
+        data = _get_json("/v3/regeo", {"location": f"{lng:.6f},{lat:.6f}",
+                                       "extensions": "base"})
+    except AmapNotConfigured:
+        raise                      # 没配 Key 是配置问题，不能被"降级"吞掉
+    except AmapError as e:
+        logger.warning("逆地理编码失败：%s", e)
+        return {"address": "", "city": "", "district": "", "adcode": ""}
+
+    regeocode = data.get("regeocode") or {}
+    comp = regeocode.get("addressComponent") or {}
+    city = comp.get("city") or comp.get("province") or ""
+    if isinstance(city, list):          # 高德直辖市有时给空数组
+        city = comp.get("province") or ""
+    return {
+        "address": regeocode.get("formatted_address") or "",
+        "city": city or "",
+        "district": comp.get("district") or "",
+        "adcode": comp.get("adcode") or "",
+    }
+
+
+def ip_location(ip: str = "") -> dict:
+    """按 IP 定位到城市。不传 ip 时高德用请求方 IP（即服务器），所以一定要传。"""
+    params = {}
+    if ip:
+        params["ip"] = ip
+    data = _get_json("/v3/ip", params)
+
+    city = data.get("city") or data.get("province") or ""
+    if isinstance(city, list):
+        city = data.get("province") or ""
+    rectangle = str(data.get("rectangle") or "")
+    lng = lat = None
+    if ";" in rectangle:
+        left, right = rectangle.split(";", 1)
+        try:
+            lng = round((float(left.split(",")[0]) + float(right.split(",")[0])) / 2, 6)
+            lat = round((float(left.split(",")[1]) + float(right.split(",")[1])) / 2, 6)
+        except (ValueError, IndexError):
+            lng = lat = None
+    return {"city": city, "adcode": str(data.get("adcode") or ""),
+            "lng": lng, "lat": lat}
+
+
+def poi_search(keyword: str, city: str = "", location: str = "",
+               limit: int = 5) -> list[dict]:
+    """关键词搜地点（加油站、麦当劳这类模糊需求）。
+
+    location 传 "lng,lat" 时，返回结果会带距离，并按距离排序。
+    """
+    keyword = (keyword or "").strip()
+    if not keyword:
+        raise AmapError("搜索关键词是空的。")
+
+    params = {"keywords": keyword, "offset": max(1, min(limit, 10)), "page": 1,
+              "extensions": "base"}
+    if city:
+        params["city"] = city
+        params["citylimit"] = "true"      # 有 city 时默认限制在该城市
+    if location:
+        params["location"] = location
+
+    data = _get_json("/v3/place/text", params)
+    out = []
+    for poi in (data.get("pois") or [])[:limit]:
+        loc = str(poi.get("location") or "")
+        out.append({
+            "name": poi.get("name") or "",
+            "address": poi.get("address") or "",
+            "location": loc,
+            "distance_m": int(poi.get("distance") or 0) if str(poi.get("distance") or "").isdigit() else None,
+            "type": poi.get("type") or "",
+        })
+    return out

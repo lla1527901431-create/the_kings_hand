@@ -268,7 +268,7 @@ def main():
                    "data": {"output": {"output": "有雨，改期吧",
                                        "intermediate_steps": []}}}
 
-    runner._build_executor = lambda key, phone="": StubExecutor()
+    runner._build_executor = lambda key, phone="", location=None: StubExecutor()
 
     async def collect():
         return [ev async for ev in REAL_CHAT_STREAM(

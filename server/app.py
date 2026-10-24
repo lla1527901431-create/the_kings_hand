@@ -138,6 +138,9 @@ class ChatRequest(BaseModel):
     events: list[dict] = []          # 前端把当前日程一起发来，供模型判断冲突
     pending: dict = {}
     history: list[dict] = []
+    # 前端浏览器定位（WGS-84）：{"lat": 22.27, "lng": 113.57, "accuracy": 35}
+    # 没给的话服务端用客户端 IP 做城市级兜底
+    location: dict = {}
 
 
 class CredentialsRequest(BaseModel):
@@ -565,6 +568,21 @@ def _friendly_error(e: Exception, is_admin: bool) -> tuple[int, str]:
     return 502, f"对话处理失败（{name}）。"
 
 
+def _client_ip(request: Request) -> str:
+    """取客户端 IP。反向代理后面要看 X-Forwarded-For 的第一段。"""
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else ""
+
+
+def _chat_location(req: ChatRequest, request: Request) -> dict:
+    """浏览器定位 + 客户端 IP：定位工具优先用坐标，坐标缺失时用 IP 兜底。"""
+    location = dict(req.location or {})
+    location["ip"] = _client_ip(request)
+    return location
+
+
 def _prepare_chat(user: CurrentUser, req: ChatRequest) -> tuple[str, str, dict, list]:
     """/chat 与 /chat/stream 共用的前置检查与取数。"""
     message = (req.message or "").strip()
@@ -624,7 +642,8 @@ def _distill_in_background(phone: str, user_msg: str, assistant_msg: str,
 
 
 @app.post("/chat")
-def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(current_user),
+def chat_endpoint(req: ChatRequest, request: Request,
+                  user: CurrentUser = Depends(current_user),
                   _: None = Depends(csrf_protect)):
     """非流式对话：一次算完，返回一个完整 JSON。
 
@@ -639,6 +658,7 @@ def chat_endpoint(req: ChatRequest, user: CurrentUser = Depends(current_user),
             message,
             deepseek_key=key,
             phone=user.phone,
+            location=_chat_location(req, request),
             events=req.events,
             pending=req.pending,
             memory_text=memories.format_memory_text(memory),
@@ -671,7 +691,8 @@ def _sse(event: dict) -> bytes:
 
 
 @app.post("/chat/stream")
-async def chat_stream_endpoint(req: ChatRequest, user: CurrentUser = Depends(current_user),
+async def chat_stream_endpoint(req: ChatRequest, request: Request,
+                               user: CurrentUser = Depends(current_user),
                                _: None = Depends(csrf_protect),
                                background: BackgroundTasks = None):
     """流式对话：SSE 逐 token 下发。
@@ -689,6 +710,7 @@ async def chat_stream_endpoint(req: ChatRequest, user: CurrentUser = Depends(cur
                 message,
                 deepseek_key=key,
                 phone=user.phone,
+                location=_chat_location(req, request),
                 events=req.events,
                 pending=req.pending,
                 memory_text=memories.format_memory_text(memory),

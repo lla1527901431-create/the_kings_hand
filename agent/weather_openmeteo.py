@@ -56,10 +56,16 @@ def _geocode(city: str) -> tuple[float, float, str] | None:
 
 
 @tool
-def get_weather_forecast(city: str, days: int = 3) -> str:
-    """查询指定城市的天气预报，包含当前天气和未来几天的预报。
-    city: 城市名，中英文均可，例如 '深圳'、'Shenzhen'、'北京'。
+def get_weather_forecast(city: str = "", days: int = 3,
+                         latitude: float | None = None,
+                         longitude: float | None = None) -> str:
+    """查询指定位置的天气预报，包含当前天气和未来几天的预报。
+
+    city: 城市名，中英文均可，例如 '深圳'、'Shenzhen'。用户没说城市时留空。
     days: 查询未来几天的预报，默认 3，范围 1-7。
+    latitude / longitude: 精确坐标（WGS-84 或 GCJ-02 都行，城市级天气差异可忽略）。
+        从 get_current_location 拿到坐标后直接传进来，比城市名更准。
+
     当用户询问天气、气温、是否下雨、出行建议时使用此工具。
     """
     if days < 1:
@@ -67,10 +73,17 @@ def get_weather_forecast(city: str, days: int = 3) -> str:
     if days > 7:
         days = 7
 
-    geo = _geocode(city)
-    if geo is None:
-        return f"找不到城市 '{city}'，请换一个更具体的城市名。"
-    lat, lon, resolved_name = geo
+    if latitude is not None and longitude is not None:
+        lat, lon = float(latitude), float(longitude)
+        resolved_name = (city or "").strip() or "当前定位位置"
+    else:
+        city = (city or "").strip()
+        if not city:
+            return "需要城市名或坐标：请先调用 get_current_location，或告诉我城市。"
+        geo = _geocode(city)
+        if geo is None:
+            return f"找不到城市 '{city}'，请换一个更具体的城市名。"
+        lat, lon, resolved_name = geo
 
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
