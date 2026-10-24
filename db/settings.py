@@ -17,8 +17,9 @@ from datetime import datetime
 
 from db import database
 
-# 目前只有这一项；以后要加别的开关，往这里加常量即可
+# 目前只有这两项；以后要加别的开关，往这里加常量即可
 DEEPSEEK_API_KEY = "deepseek_api_key"
+AMAP_API_KEY = "amap_api_key"
 
 
 def get(key: str, default: str = "") -> str:
@@ -60,17 +61,12 @@ def mask(text: str) -> str:
     return f"{raw[:6]}{'*' * 8}{raw[-4:]}"
 
 
-def deepseek_key() -> str:
-    """管理员统一配置的那把 Key（明文，只在服务端内部用）。"""
-    return get(DEEPSEEK_API_KEY)
-
-
-def deepseek_status() -> dict:
+def _status(key: str) -> dict:
     """给前端看的状态：有没有配、打码后的样子、谁改的、什么时候改的。"""
     database.init_db()
     row = database.query_one(
         "SELECT value, updated_by, updated_at FROM app_settings WHERE key = ?",
-        (DEEPSEEK_API_KEY,),
+        (key,),
     )
     raw = (row["value"] if row else "") or ""
     return {
@@ -79,3 +75,24 @@ def deepseek_status() -> dict:
         "updated_by": (row["updated_by"] if row else "") or "",
         "updated_at": (row["updated_at"] if row else "") or "",
     }
+
+
+def deepseek_key() -> str:
+    """管理员统一配置的那把 Key（明文，只在服务端内部用）。"""
+    return get(DEEPSEEK_API_KEY)
+
+
+def deepseek_status() -> dict:
+    return _status(DEEPSEEK_API_KEY)
+
+
+# ---------------------------------------------------------------------------
+# 高德（路况 / 地理编码）
+# ---------------------------------------------------------------------------
+def amap_key() -> str:
+    """管理员配置的高德 Web 服务 Key（明文，只在服务端内部用）。"""
+    return get(AMAP_API_KEY)
+
+
+def amap_status() -> dict:
+    return _status(AMAP_API_KEY)

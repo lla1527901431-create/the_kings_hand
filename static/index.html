@@ -215,6 +215,20 @@
         </label>
       </div>
 
+      <!-- 高德 Key：只用于查实时路况，可选；不配就不启用路况功能 -->
+      <div class="form-grid">
+        <label>高德 Web 服务 Key（用于查路况，可选）
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input id="admin-amap-key" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="32 位高德 Key" style="flex:1 1 220px; min-width:0;">
+            <button id="admin-amap-save" class="primary" style="white-space:nowrap;">保存</button>
+            <button id="admin-amap-clear" style="white-space:nowrap;">清空</button>
+          </div>
+          <div id="admin-amap-state" class="cred-state"></div>
+          <span class="hint">在高德控制台创建 Key 时，服务平台必须选「Web服务」。</span>
+        </label>
+      </div>
+
       <div class="form-grid">
         <label>修改我的登录密码
           <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">

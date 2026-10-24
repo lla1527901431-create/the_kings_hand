@@ -377,6 +377,7 @@ def me(user: CurrentUser = Depends(current_user)):
         "credentials": secrets.status(user.phone),
         "deepseek": settings.deepseek_status(),
         "deepseek_source": source if key else "",
+        "amap": settings.amap_status(),
         "memory": memories.load_memory(user.phone),
     }
 
@@ -482,8 +483,11 @@ class PasswordChangeRequest(BaseModel):
 
 @app.get("/admin/settings")
 def admin_settings(admin: CurrentUser = Depends(admin_user)):
-    """管理员面板用：全站设置（目前只有 DeepSeek Key）的状态。"""
-    return {"settings": {"deepseek": settings.deepseek_status()}}
+    """管理员面板用：全站设置的状态（DeepSeek Key / 高德 Key）。"""
+    return {"settings": {
+        "deepseek": settings.deepseek_status(),
+        "amap": settings.amap_status(),
+    }}
 
 
 @app.post("/admin/settings/api_key")
@@ -503,6 +507,28 @@ def admin_clear_api_key(admin: CurrentUser = Depends(admin_user),
     settings.delete(settings.DEEPSEEK_API_KEY)
     logger.info("管理员 %s 清空了全局 DeepSeek API Key", admin.phone)
     return {"status": "ok", "deepseek": settings.deepseek_status()}
+
+
+@app.post("/admin/settings/amap_key")
+def admin_save_amap_key(req: ApiKeyRequest, admin: CurrentUser = Depends(admin_user),
+                        _: None = Depends(csrf_protect)):
+    """保存高德 Web 服务 Key（用于查实时路况）。"""
+    key = (req.api_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="请填写高德 Key。")
+    if len(key) < 20:
+        raise HTTPException(status_code=400, detail="这不像一个高德 Key（一般是 32 位）。")
+    settings.set_value(settings.AMAP_API_KEY, key, updated_by=admin.phone)
+    logger.info("管理员 %s 更新了高德 Key", admin.phone)
+    return {"status": "ok", "amap": settings.amap_status()}
+
+
+@app.delete("/admin/settings/amap_key")
+def admin_clear_amap_key(admin: CurrentUser = Depends(admin_user),
+                         _: None = Depends(csrf_protect)):
+    settings.delete(settings.AMAP_API_KEY)
+    logger.info("管理员 %s 清空了高德 Key", admin.phone)
+    return {"status": "ok", "amap": settings.amap_status()}
 
 
 @app.post("/admin/password")

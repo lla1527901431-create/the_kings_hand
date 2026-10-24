@@ -176,6 +176,10 @@ const AdminApi = {
   saveApiKey: (api_key) => api("/admin/settings/api_key", { method: "POST", body: { api_key } }),
   clearApiKey: () => api("/admin/settings/api_key", { method: "DELETE" }),
 
+  // 高德 Key（路况）
+  saveAmapKey: (api_key) => api("/admin/settings/amap_key", { method: "POST", body: { api_key } }),
+  clearAmapKey: () => api("/admin/settings/amap_key", { method: "DELETE" }),
+
   // 管理员自己的登录密码
   changePassword: (old_password, new_password) =>
     api("/admin/password", { method: "POST", body: { old_password, new_password } }),

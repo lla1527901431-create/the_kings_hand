@@ -5,6 +5,7 @@
 let currentUser = null;
 let credentialsStatus = { has_deepseek_key: false };
 let deepseekStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
+let amapStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
 let memoryData = { facts: [], preferences: [], last_updated: "" };
 let appBooted = false;
 let needsBootstrap = false;     // 名单是否为空（为空时第一个登录者成为管理员）
@@ -406,6 +407,7 @@ async function openAdminPanel() {
   el("admin-modal").classList.remove("hidden");
   el("admin-list").innerHTML = "<div class='muted'>加载中…</div>";
   el("admin-api-key").value = "";
+  el("admin-amap-key").value = "";
   el("admin-old-pwd").value = "";
   el("admin-new-pwd").value = "";
   await Promise.all([loadWhitelist(), LoadDeepseekSetting()]);
@@ -499,12 +501,16 @@ async function toggleAdmin(phone, makeAdmin) {
 // ---------------------------------------------------------------------------
 async function LoadDeepseekSetting() {
   let deepseek = { configured: false, masked: "", updated_at: "", updated_by: "" };
+  let amap = { configured: false, masked: "", updated_at: "", updated_by: "" };
   try {
     const r = await AdminApi.settings();
     deepseek = (r.settings && r.settings.deepseek) || deepseek;
+    amap = (r.settings && r.settings.amap) || amap;
   } catch (e) { /* 保留默认 */ }
   deepseekStatus = deepseek;
+  amapStatus = amap;
   renderDeepseekState();
+  renderAmapState();
   return deepseek;
 }
 
@@ -540,6 +546,45 @@ async function clearAdminApiKey() {
     const r = await AdminApi.clearApiKey();
     deepseekStatus = r.deepseek || deepseekStatus;
     renderDeepseekState();
+    toast("已清空。", "ok");
+  } catch (e) {
+    toast("清空失败：" + e.message, "error");
+  }
+}
+
+// ---- 高德 Key（只影响路况查询，不配也能正常用其他功能） ----
+function renderAmapState() {
+  const s = amapStatus || {};
+  el("admin-amap-key").placeholder = s.masked || "32 位高德 Key";
+  const parts = [s.configured ? `已配置：${esc(s.masked)}` : "未配置（路况功能不可用）"];
+  if (s.updated_at) parts.push(`更新于 ${esc(s.updated_at)}`);
+  if (s.updated_by) parts.push(`由 ${esc(maskPhone(s.updated_by))} 设置`);
+  el("admin-amap-state").textContent = parts.join(" · ");
+}
+
+async function saveAdminAmapKey() {
+  const key = el("admin-amap-key").value.trim();
+  if (!key) {
+    toast("请填写高德 Key。", "error");
+    return;
+  }
+  try {
+    const r = await AdminApi.saveAmapKey(key);
+    amapStatus = r.amap || amapStatus;
+    renderAmapState();
+    el("admin-amap-key").value = "";
+    toast("高德 Key 已保存，路况查询已启用。", "ok");
+  } catch (e) {
+    toast("保存失败：" + e.message, "error", 6000);
+  }
+}
+
+async function clearAdminAmapKey() {
+  if (!confirm("确定清空高德 Key？清空后无法再查询实时路况。")) return;
+  try {
+    const r = await AdminApi.clearAmapKey();
+    amapStatus = r.amap || amapStatus;
+    renderAmapState();
     toast("已清空。", "ok");
   } catch (e) {
     toast("清空失败：" + e.message, "error");
@@ -588,6 +633,12 @@ async function initSession() {
   el("admin-api-key-clear").addEventListener("click", clearAdminApiKey);
   el("admin-api-key").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); saveAdminApiKey(); }
+  });
+
+  el("admin-amap-save").addEventListener("click", saveAdminAmapKey);
+  el("admin-amap-clear").addEventListener("click", clearAdminAmapKey);
+  el("admin-amap-key").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveAdminAmapKey(); }
   });
   el("admin-pwd-save").addEventListener("click", changeAdminPassword);
 
