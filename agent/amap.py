@@ -268,8 +268,10 @@ def wgs84_to_gcj02(lat: float, lng: float) -> tuple[float, float]:
 def regeo(lng: float, lat: float) -> dict:
     """坐标 → 地址信息。失败时返回空字段（不抛异常，定位场景可降级）。"""
     try:
-        data = _get_json("/v3/regeo", {"location": f"{lng:.6f},{lat:.6f}",
-                                       "extensions": "base"})
+        # ⚠️ 逆地理编码是 /v3/geocode/regeo（不是 /v3/regeo）。
+        # 写成 /v3/regeo 会返回 SERVICE_NOT_AVAILABLE(10002)，定位就拿不到城市。
+        data = _get_json("/v3/geocode/regeo", {"location": f"{lng:.6f},{lat:.6f}",
+                                               "extensions": "base"})
     except AmapNotConfigured:
         raise                      # 没配 Key 是配置问题，不能被"降级"吞掉
     except AmapError as e:

@@ -117,6 +117,13 @@ body {
   gap: 10px;
 }
 
+/* 关键：推理块（.steps）带 overflow:hidden，作为 flex 子项时自动最小高度
+   会变成 0，于是被压扁到只露一两行。固定成不可收缩，让它自然长高，
+   由 .chat-history 负责滚动。 */
+.chat-history > * {
+  flex-shrink: 0;
+}
+
 .msg {
   max-width: 80%;
   padding: 8px 12px;
