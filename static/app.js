@@ -267,6 +267,8 @@ async function send() {
           bubble.textContent = ev.output;
           output = ev.output;
         }
+        // agent 可能用 update_pending_task 改过备注/时间，收尾时刷新一次列表
+        try { await loadPending(); } catch (e) { console.error("刷新待办失败", e); }
         if (reasoning) {
           reasoning.summary.textContent =
             `推理过程 · ${(ev.steps || []).length} 步`;

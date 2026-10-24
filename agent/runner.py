@@ -29,6 +29,7 @@ from agent.geo_tools import (
     make_search_place,
 )
 from agent.history_tools import make_search_history
+from agent.pending_tools import make_update_pending
 from agent.llm import build_llm, build_memory_llm
 from agent.weather_openmeteo import get_weather_forecast
 from server.logging_config import get_logger
@@ -83,6 +84,7 @@ def build_tools(phone: str = "", location: dict | None = None) -> list:
         make_search_place(location),
     ]
     if phone:
+        tools.append(make_update_pending(phone))
         tools.append(make_search_history(phone))
     return tools
 
@@ -198,6 +200,18 @@ SYSTEM_PROMPT = """你是 The King's Hand，一个日历助手。
    - 路况只有"当前时刻"：用户说"明天下午三点"时，把 when 填进去，
      并把工具返回的"仅供参考"原样转告用户，绝不能把它说成那时的路况。
    - 定位失败（用户拒绝授权、没有 IP 结果）时，直接问用户所在城市，不要猜。
+
+11. 任务入库之后还能改，但只有"未确认"的能改：
+   - 用户补充信息（出发地、同行人、备注、改时间）时，用 update_pending_task 改
+     **已有那条**（id 就在上面待办列表的 [id=...] 里），不要用 emit_tasks 新建。
+   - 用户点了「确认」之后，任务就进了日历，**你不能再改**；他要改就让他在日历里手动改。
+   - 带明确地点的日程，入库后主动做一次出行评估（不要等用户问）：
+     get_current_location → get_weather_forecast（会议当天，用 days 覆盖到那天）
+     → plan_traffic（arrive_by 传会议开始时间）。
+     然后把"耗时 / 当天天气 / 建议出发时间"用 update_pending_task 写进备注，
+     并在回复里一并告诉用户：会议标题、时间、地点、路上要多久、建议几点出发。
+   - 评估结果写进备注时要简短，例如：
+     "驾车约 28 分钟（当前路况）；建议 13:15 前出发；当天多云 22~28°C。"
 """
 
 
@@ -346,16 +360,28 @@ def _format_pending(pending: dict) -> str:
     planned = pending.get("planned") or []
     lines = []
     if confirmed:
-        lines.append("待确认：")
+        lines.append("待确认（还没确认，可以修改）：")
         for t in confirmed:
             rng = t.get("start") or ""
             if t.get("end"):
                 rng += f" ~ {t['end']}"
-            lines.append(f"- [id={t.get('id', '')}] {t.get('title', '')}（{rng}）")
+            extra = []
+            if t.get("location"):
+                extra.append(f"地点 {t['location']}")
+            if t.get("note"):
+                extra.append(f"备注 {str(t['note'])[:60]}")
+            suffix = ("（" + "，".join(extra) + "）") if extra else ""
+            lines.append(f"- [id={t.get('id', '')}] {t.get('title', '')}（{rng}）{suffix}")
     if planned:
-        lines.append("待计划：")
+        lines.append("待计划（还没确认，可以修改）：")
         for t in planned:
-            lines.append(f"- [id={t.get('id', '')}] {t.get('title', '')}")
+            extra = []
+            if t.get("location"):
+                extra.append(f"地点 {t['location']}")
+            if t.get("note"):
+                extra.append(f"备注 {str(t['note'])[:60]}")
+            suffix = ("（" + "，".join(extra) + "）") if extra else ""
+            lines.append(f"- [id={t.get('id', '')}] {t.get('title', '')}{suffix}")
     return "\n".join(lines) if lines else "（暂无）"
 
 

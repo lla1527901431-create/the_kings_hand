@@ -13,6 +13,8 @@ location 字典的形状（前端或 IP 兜底提供）：
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from langchain_core.tools import tool
 
 from agent import amap
@@ -111,15 +113,19 @@ def make_plan_traffic(location: dict | None):
     """路线 + 实时路况。没说起点时默认用当前位置。"""
 
     @tool
-    def plan_traffic(destination: str, origin: str = "", when: str = "") -> str:
+    def plan_traffic(destination: str, origin: str = "", when: str = "",
+                     arrive_by: str = "") -> str:
         """查询从起点到目的地的驾车耗时和实时路况。
 
         destination: 目的地，地址或地点名都可以，例如 "宝安机场"、"珠海站"。
         origin: 起点。留空表示用用户当前位置。
         when: 用户说的时间，例如 "明天下午3点"。留空表示"现在"。
+        arrive_by: 需要在某个时刻"到达"时传它，格式 'YYYY-MM-DD HH:MM'。
+            工具会反推建议出发时间（当前耗时 + 15 分钟缓冲）。
 
-        ⚠️ 高德只能查到**当前时刻**的路况，没有未来预测。所以 when 填了未来时间时，
-        返回的仍然是现在的情况，必须原样把"仅供参考"的提醒转告用户，不要假装是那时的路况。
+        ⚠️ 高德只能查到**当前时刻**的路况，没有未来预测。所以 when / arrive_by
+        填了未来时间时，返回的仍然是现在的情况，必须原样把"仅供参考"的提醒
+        转告用户，不要假装是那时的路况。
         """
         destination = (destination or "").strip()
         if not destination:
@@ -145,19 +151,38 @@ def make_plan_traffic(location: dict | None):
         except amap.AmapError as e:
             return f"查路况失败：{e}"
 
-        text = result["text"]
-        if (when or "").strip() not in _NOW_WORDS:
-            text = (f"⚠️ 注意：下面是**当前时刻**（{_coord_clock()}）的路况，"
-                    f"不能代表「{when.strip()}」的实际拥堵情况，仅供参考。\n{text}")
-        return f"{text}\n（起点：{origin_label}；缓存 5 分钟内有效）"
+        arrive_dt = _parse_dt(arrive_by) if arrive_by else None
+        lines = [result["text"]]
+
+        if arrive_dt:
+            leave_at = arrive_dt - timedelta(minutes=result["duration_min"] + 15)
+            lines.append(
+                f"要 {arrive_dt.strftime('%H:%M')} 前到达，建议 {leave_at.strftime('%H:%M')} "
+                f"前出发（按当前耗时 {result['duration_min']} 分钟 + 15 分钟缓冲）。")
+
+        future = bool(arrive_dt) or ((when or "").strip() not in _NOW_WORDS)
+        if future:
+            label = arrive_dt.strftime("%m-%d %H:%M") if arrive_dt else when.strip()
+            lines.insert(0, f"⚠️ 注意：下面是**当前时刻**（{_coord_clock()}）的路况，"
+                            f"不能代表「{label}」的实际拥堵情况，仅供参考。")
+
+        lines.append(f"（起点：{origin_label}；缓存 5 分钟内有效）")
+        return "\n".join(lines)
 
     return plan_traffic
 
 
+def _parse_dt(text: str):
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime((text or "").strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def _coord_clock() -> str:
-    from datetime import datetime
-    now = datetime.now()
-    return now.strftime("%H:%M")
+    return datetime.now().strftime("%H:%M")
 
 
 def make_search_place(location: dict | None):
