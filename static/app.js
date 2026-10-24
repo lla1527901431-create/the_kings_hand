@@ -220,6 +220,37 @@ function browserLocation() {
   });
 }
 
+// 消息左下角的"事实小字"：只放工具返回的结构化字段，模型不重复念。
+// 缺哪个字段就省略哪段，整块没内容就不渲染。
+function renderBrief(bubble, brief) {
+  if (!brief || !bubble) return;
+  const lines = [];
+
+  const w = brief.weather;
+  if (w) {
+    const parts = [w.date, w.city, w.desc, w.temp];
+    if (w.precip !== undefined && w.precip !== null) parts.push(`降水概率 ${w.precip}%`);
+    const line = parts.filter(Boolean).join("  ");
+    if (line) lines.push(line);
+  }
+
+  const t = brief.traffic;
+  if (t) {
+    const parts = [];
+    if (t.distance_km) parts.push(`距目的地约 ${t.distance_km} 公里`);
+    if (t.duration_min) parts.push(`预计 ${t.duration_min} 分钟`);
+    if (t.leave_by) parts.push(`建议 ${t.leave_by} 前出发`);
+    parts.push("路程预估参考当前时间");
+    lines.push(parts.join("  "));
+  }
+
+  if (!lines.length) return;
+  const div = document.createElement("div");
+  div.className = "msg-brief";
+  div.textContent = lines.join("\n");
+  bubble.insertAdjacentElement("afterend", div);
+}
+
 async function send() {
   const text = chatInput.value.trim();
   if (!text || streaming) return;
@@ -269,6 +300,7 @@ async function send() {
         }
         // agent 可能用 update_pending_task 改过备注/时间，收尾时刷新一次列表
         try { await loadPending(); } catch (e) { console.error("刷新待办失败", e); }
+        renderBrief(bubble, ev.brief);
         if (reasoning) {
           reasoning.summary.textContent =
             `推理过程 · ${(ev.steps || []).length} 步`;

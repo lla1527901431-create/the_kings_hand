@@ -1130,3 +1130,13 @@ button.ghost:hover {
     transform: translateY(0);
   }
 }
+
+/* 消息左下角的事实小字：天气/路况等结构化字段，由 done.brief 渲染 */
+.msg-brief {
+  margin: -4px 0 12px 4px;
+  color: var(--text-dim, rgba(255, 255, 255, 0.55));
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-line;
+  max-width: 92%;
+}

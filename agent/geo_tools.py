@@ -109,7 +109,7 @@ def make_get_location(location: dict | None):
     return get_current_location
 
 
-def make_plan_traffic(location: dict | None):
+def make_plan_traffic(location: dict | None, brief: dict | None = None):
     """路线 + 实时路况。没说起点时默认用当前位置。"""
 
     @tool
@@ -154,11 +154,22 @@ def make_plan_traffic(location: dict | None):
         arrive_dt = _parse_dt(arrive_by) if arrive_by else None
         lines = [result["text"]]
 
+        leave_at = None
         if arrive_dt:
             leave_at = arrive_dt - timedelta(minutes=result["duration_min"] + 15)
             lines.append(
                 f"要 {arrive_dt.strftime('%H:%M')} 前到达，建议 {leave_at.strftime('%H:%M')} "
                 f"前出发（按当前耗时 {result['duration_min']} 分钟 + 15 分钟缓冲）。")
+
+        # 给前端左下角小字用的结构化数据（模型不需要在正文里复述这些字段）
+        if brief is not None:
+            brief["traffic"] = {
+                "destination": destination,
+                "distance_km": result["distance_km"],
+                "duration_min": result["duration_min"],
+                "leave_by": leave_at.strftime("%H:%M") if leave_at else "",
+                "cached": result.get("cached", False),
+            }
 
         future = bool(arrive_dt) or ((when or "").strip() not in _NOW_WORDS)
         if future:

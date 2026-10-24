@@ -31,7 +31,7 @@ from agent.geo_tools import (
 from agent.history_tools import make_search_history
 from agent.pending_tools import make_update_pending
 from agent.llm import build_llm, build_memory_llm
-from agent.weather_openmeteo import get_weather_forecast
+from agent.weather_openmeteo import make_weather_forecast
 from server.logging_config import get_logger
 
 logger = get_logger("agent")
@@ -71,16 +71,19 @@ def emit_tasks(tasks: list[TaskItem]) -> str:
     return f"已捕获 {len(tasks)} 个任务"
 
 
-def build_tools(phone: str = "", location: dict | None = None) -> list:
+def build_tools(phone: str = "", location: dict | None = None,
+                brief: dict | None = None) -> list:
     """工具清单。
 
-    * phone：挂了才有"查历史"（要按用户隔离）
+    * phone：挂了才有"查历史""改待办"（要按用户隔离）
     * location：浏览器带上来（或 IP 兜底）的定位，绑给位置/路线/地点三个工具
+    * brief：工具把事实字段写进这里，最终随 done 事件给前端当小字
     """
     tools = [
-        resolve_date, resolve_datetime, get_weather_forecast, emit_tasks,
+        resolve_date, resolve_datetime, emit_tasks,
+        make_weather_forecast(brief),
         make_get_location(location),
-        make_plan_traffic(location),
+        make_plan_traffic(location, brief),
         make_search_place(location),
     ]
     if phone:
@@ -212,6 +215,16 @@ SYSTEM_PROMPT = """你是 The King's Hand，一个日历助手。
      并在回复里一并告诉用户：会议标题、时间、地点、路上要多久、建议几点出发。
    - 评估结果写进备注时要简短，例如：
      "驾车约 28 分钟（当前路况）；建议 13:15 前出发；当天多云 22~28°C。"
+
+12. 回复要短，不要复述卡片里已经有的信息：
+   - 任务入列后**不要**再说"已将任务添加到 To be confirmed"并重复标题/时间/地点，
+     左侧卡片已经显示了；直接说你要补充的那点信息。
+   - 时间有调整就一句话："会议时间调整到 14:30"。
+   - 天气和路线各一句话，用人话讲**结论**（会不会下雨、要不要带外套、大概多久），
+     不要罗列日期/城市/温度区间/降水概率/距离这些字段 —— 它们会以
+     小字显示在消息左下角。
+   - 建议出发时间可以说一句："建议 13:54 前出发，留 15 分钟缓冲"。
+   - 查天气时用 date 参数查会议当天（'YYYY-MM-DD'），不要用 days 然后在多天里挑。
 """
 
 
@@ -419,7 +432,8 @@ def _split_duplicates(tasks: list[dict], events, pending) -> tuple[list[dict], l
 
 
 def _build_executor(deepseek_key: str, phone: str = "",
-                    location: dict | None = None) -> AgentExecutor:
+                    location: dict | None = None,
+                    brief: dict | None = None) -> AgentExecutor:
     """构造 agent。非流式与流式共用同一套提示词与工具，避免两边行为漂移。"""
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
@@ -428,7 +442,7 @@ def _build_executor(deepseek_key: str, phone: str = "",
         ("placeholder", "{agent_scratchpad}"),
     ])
     llm = build_llm(deepseek_key)
-    tools = build_tools(phone, location)   # 每次调用都会新绑 phone / location 闭包
+    tools = build_tools(phone, location, brief)
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(
         agent=agent, tools=tools,
@@ -478,7 +492,8 @@ def chat(
     日程/待办/记忆由调用方传入 —— agent 层不碰存储；phone 与 location 只用来
     绑定"查历史"和位置类工具。
     """
-    executor = _build_executor(deepseek_key, phone, location)
+    brief: dict = {}          # 工具往这里塞事实字段，最终随 done 事件给前端当小字
+    executor = _build_executor(deepseek_key, phone, location, brief)
     result = executor.invoke(_build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,
@@ -487,7 +502,8 @@ def chat(
     tasks, steps = _extract_tasks(result.get("intermediate_steps", []))
     # 查重由模型在 emit_tasks 里用 duplicate_of 标注；这里只做过滤与 id 校验
     tasks, _ = _split_duplicates(tasks, events, pending)
-    return {"output": result.get("output", ""), "steps": steps, "tasks": tasks}
+    return {"output": result.get("output", ""), "steps": steps,
+            "tasks": tasks, "brief": brief}
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +556,8 @@ async def chat_stream(
     一次模型调用 = 一段；最后一段（agent 结束后不再调工具的那次）才是回答。
     所以前端要在收到 segment 事件时，把上一段文字挪进「推理过程」区。
     """
-    executor = _build_executor(deepseek_key, phone, location)
+    brief: dict = {}          # 工具往这里塞事实字段，随 done 事件给前端当小字
+    executor = _build_executor(deepseek_key, phone, location, brief)
     inputs = _build_inputs(
         user_input, events=events, pending=pending,
         memory_text=memory_text, history=history,
@@ -610,4 +627,4 @@ async def chat_stream(
         # 兜底：拿不到权威输出时（比如达到 max_iterations 被截断），取最后一段
         final_output = "".join(segments[-1]) if segments else ""
 
-    yield {"type": "done", "output": final_output, "steps": steps}
+    yield {"type": "done", "output": final_output, "steps": steps, "brief": brief}
