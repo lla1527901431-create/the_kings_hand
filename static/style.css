@@ -96,9 +96,9 @@ body {
 
 .msg {
   max-width: 80%;
-  padding: 8px 12px;
+  padding: 9px 13px;
   border-radius: 10px;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
   font-size: 14px;
 }
@@ -1079,9 +1079,10 @@ button.ghost:hover {
   }
 }
 
-/* 消息左下角的事实小字：天气/路况等结构化字段，由 done.brief 渲染 */
+/* 消息左下角的事实小字：天气/路况等结构化字段，由 done.brief 渲染
+   （左边距与 .msg-meta 对齐，让气泡下方的附属块共用一条竖线） */
 .msg-brief {
-  margin: -4px 0 12px 4px;
+  margin: 0 0 1px 0;
   color: var(--text-dim, rgba(255, 255, 255, 0.55));
   font-size: 12px;
   line-height: 1.7;
@@ -1171,14 +1172,43 @@ button.ghost:hover {
 }
 
 /* --------------------------------------------------------------------------
-   消息动作行：复制 / 重新生成
+   消息元信息行：工具引用 chip 和「复制 / 重新生成」共用这一条
+   --------------------------------------------------------------------------
+   以前 chip 一行、按钮一行，两行左边距和行高都不一样，看着参差。
+   现在同一条 flex 承载两组，chip 在左、按钮紧跟，中间一根细竖线分隔；
+   没有 chip 时按钮自然落在最左，位置和左边距保持不变。
    -------------------------------------------------------------------------- */
+.msg-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-self: flex-start;
+  max-width: 92%;
+  margin: 2px 0 1px 0;
+  min-height: 25px;
+}
+
+.msg-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
 .msg-actions {
   display: flex;
   align-items: center;
   gap: 2px;
-  align-self: flex-start;
-  margin: 0 0 2px 2px;
+}
+
+/* chip 组与动作组之间的分隔线：只有两组同时存在时才出现 */
+.msg-tools + .msg-actions::before {
+  content: "";
+  width: 1px;
+  height: 11px;
+  margin-right: 5px;
+  background: var(--edge);
 }
 
 /* 只有图标，所以做成等宽方块；文案在 title / aria-label 里 */
@@ -1186,8 +1216,8 @@ button.ghost:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1203,27 +1233,16 @@ button.ghost:hover {
 }
 
 /* --------------------------------------------------------------------------
-   工具引用 chip：单独一行，夹在回答气泡和推理过程之间
+   工具引用 chip：说明这句话参考了哪几个工具的结果
    -------------------------------------------------------------------------- */
-.msg-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-self: flex-start;
-  margin: -2px 0 4px 2px;
-}
-
-.msg-tools .tool-chip {
-  margin: 0;
-}
 .tool-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 17px;
-  padding: 0 5px;
-  margin: 0 3px;
-  border-radius: 5px;
+  height: 20px;
+  padding: 0 7px;
+  margin: 0;
+  border-radius: 6px;
   font-size: 10.5px;
   line-height: 1;
   vertical-align: 1px;

@@ -174,20 +174,19 @@ const CHIP_ICONS = {
   check: '<path d="M20 6 9 17l-5-5"></path>',
 };
 
-/** 工具 chip 单独一行，挂在气泡和推理过程之间；同一工具只留一个 */
+/** 工具 chip 挂在气泡下方的元信息行里（和复制/重新生成同一行）；同一工具只留一个 */
 function appendToolChip(bubble, tool) {
   const meta = TOOL_CHIPS[tool];
   if (!meta || !bubble) return;
 
-  // 找现有的 .msg-tools（它只会出现在气泡之后、其它附属块之前）
-  let row = bubble.nextElementSibling;
-  while (row && row.classList.contains("msg-brief")) row = row.nextElementSibling;
-  if (!row || !row.classList.contains("msg-tools")) {
-    row = document.createElement("div");
-    row.className = "msg-tools";
-    insertAfterBubble(bubble, row);
+  const row = ensureMetaRow(bubble);
+  let tools = row.querySelector(".msg-tools");
+  if (!tools) {
+    tools = document.createElement("div");
+    tools.className = "msg-tools";
+    row.prepend(tools);
   }
-  if (Array.from(row.children).some((c) => c.dataset.tool === tool)) return;
+  if (Array.from(tools.children).some((c) => c.dataset.tool === tool)) return;
 
   const chip = document.createElement("span");
   chip.className = "tool-chip";
@@ -198,7 +197,7 @@ function appendToolChip(bubble, tool) {
     `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
     `${CHIP_ICONS[meta.icon] || ""}</svg><span></span>`;
   chip.lastElementChild.textContent = meta.text;
-  row.appendChild(chip);
+  tools.appendChild(chip);
 }
 
 const ICON_COPY =
@@ -213,9 +212,9 @@ const ICON_RETRY =
   '<path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"></path></svg>';
 
 // 一条回答的附属块固定按这个顺序排：
-//   气泡 → 工具 chip → 事实小字 → 操作行 → 推理过程
+//   气泡 → 元信息行（chip + 复制/重新生成）→ 事实小字 → 推理过程
 // 新增/移除块时都走 insertAfterBubble，别的位置不用关心。
-const GROUP_CLASSES = ["msg-tools", "msg-brief", "msg-actions", "steps"];
+const GROUP_CLASSES = ["msg-meta", "msg-brief", "steps"];
 
 /** 按 GROUP_CLASSES 的顺序，把 node 插到气泡后面正确的位置 */
 function insertAfterBubble(bubble, node) {
@@ -229,6 +228,23 @@ function insertAfterBubble(bubble, node) {
     sib = sib.nextElementSibling;
   }
   anchor.insertAdjacentElement("afterend", node);
+}
+
+/**
+ * 取（或建）气泡下方的元信息行。
+ * chip 和操作按钮共用这一条 flex，左边距、行高天然对齐，
+ * 不会出现"chip 一行、按钮又一行"两行参差的情况。
+ */
+function ensureMetaRow(bubble) {
+  let sib = bubble.nextElementSibling;
+  while (sib && GROUP_CLASSES.includes(sib.classList[0])) {
+    if (sib.classList.contains("msg-meta")) return sib;
+    sib = sib.nextElementSibling;
+  }
+  const row = document.createElement("div");
+  row.className = "msg-meta";
+  insertAfterBubble(bubble, row);
+  return row;
 }
 
 /**
@@ -255,7 +271,7 @@ async function copyText(text) {
   return ok;
 }
 
-/** 回答说完后的动作行：复制 / 重新生成。只留图标，文案走 title / aria-label */
+/** 回答说完后的动作按钮：复制 / 重新生成。只留图标，文案走 title / aria-label */
 function renderActions(bubble, outputText, prompt) {
   if (!outputText) return;
 
@@ -288,7 +304,7 @@ function renderActions(bubble, outputText, prompt) {
   });
 
   row.append(copy, retry);
-  insertAfterBubble(bubble, row);
+  ensureMetaRow(bubble).appendChild(row);
 }
 
 /**
@@ -329,7 +345,7 @@ function appendSteps(steps) {
   wrap.className = "steps";
 
   const summary = document.createElement("summary");
-  summary.textContent = `推理过程 · ${steps.length} 步`;
+  summary.textContent = `思考过程 · ${steps.length} 步`;
   wrap.appendChild(summary);
 
   const body = document.createElement("div");
@@ -388,7 +404,7 @@ function createReasoningBlock() {
   wrap.className = "steps";
   wrap.open = true;                 // 流式期间保持展开，让用户看到实时进展
   const summary = document.createElement("summary");
-  summary.textContent = "推理过程";
+  summary.textContent = "思考过程";
   const body = document.createElement("div");
   body.className = "steps-body";
   wrap.appendChild(summary);
@@ -562,7 +578,7 @@ async function send() {
         output = "";
 
       } else if (ev.type === "step") {
-        if (reasoning) reasoning.summary.textContent = `推理过程 · 正在调用 ${ev.tool}…`;
+        if (reasoning) reasoning.summary.textContent = `思考过程 · 正在调用 ${ev.tool}…`;
         appendReasonLine(reasoning,
           `↳ 调用 ${ev.tool}，参数 ${JSON.stringify(ev.args)}`);
         // 查了东西就在正文里留一个小标签，让用户知道这句话的依据从哪来
@@ -585,8 +601,13 @@ async function send() {
         renderActions(bubble, output, text);
         if (reasoning) {
           reasoning.summary.textContent =
-            `推理过程 · ${(ev.steps || []).length} 步`;
-          if (!reasoning.body.children.length) reasoning.wrap.remove();
+            `思考过程 · ${(ev.steps || []).length} 步`;
+          if (!reasoning.body.children.length) {
+            reasoning.wrap.remove();
+          } else {
+            // 说完就把日志收起来，只留一条窄条；不然一长串工具调用会把回答顶出屏幕
+            reasoning.wrap.open = false;
+          }
         }
         if (output) {
           chatContext.push({ role: "user", content: text });

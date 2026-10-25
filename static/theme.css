@@ -453,24 +453,31 @@ button.ghost:hover {
 
 /* ==========================================================================
    对话气泡
+   --------------------------------------------------------------------------
+   两款都是「细描边的半透明卡片」：不铺实心底、不加投影。
+   实心紫在深色界面上太抢眼，而且和旁边的玻璃面板语言不统一；
+   描边款安静得多，紫色只留在边框和一点点底色上。
    ========================================================================== */
 .msg {
   border: 1px solid transparent;
 }
 
+/* 用户气泡：薰衣草半透明填充 + 同色描边（填充约 16% 紫，边框约 50% 紫） */
 .msg.user {
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 500;
-  border-color: var(--accent);
-  box-shadow: 0 6px 18px rgba(180, 140, 255, 0.18);
+  background: var(--accent-soft);
+  color: #efe9ff;
+  font-weight: 400;
+  border-color: rgba(180, 140, 255, 0.42);
+  box-shadow: none;
 }
 
+/* 回答气泡：中性深卡 + 一道比 --edge 稍亮的描边（#16161c / 12% 白）。
+   这里不用毛玻璃：底本来就是纯色，backdrop-filter 只会白烧 GPU。 */
 .msg.assistant {
-  background: var(--glass-strong);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-color: var(--edge);
+  background: var(--ink-850);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgba(255, 255, 255, 0.1);
   color: var(--paper-100);
 }
 
@@ -498,29 +505,30 @@ button.ghost:hover {
   cursor: not-allowed;
 }
 
-/* 推理过程：默认折叠的一条，点开才展开，
-   避免工具调用日志把正事顶出屏幕 */
+/* 思考过程：默认折叠的一条窄条，比回答卡片再暗一档。
+   左边一个小三角表示可展开，展开后转 90° 朝下；标题用 --paper-500，
+   和回答正文拉开层次，但不至于看不见。 */
 .steps {
   align-self: flex-start;
-  max-width: 86%;
-  font-size: 11px;
+  max-width: 92%;
+  font-size: 12px;
   border: 1px solid var(--edge);
-  border-radius: 9px;
-  background: var(--glass);
+  border-radius: 10px;
+  background: var(--ink-900);
   overflow: hidden;
   font-style: normal;
-  opacity: 0.95;
+  opacity: 1;
 }
 
 .steps > summary {
   list-style: none;
   cursor: pointer;
-  padding: 5px 10px;
+  padding: 7px 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--paper-600);
-  font-size: 11.5px;
+  gap: 8px;
+  color: var(--paper-500);
+  font-size: 12px;
   user-select: none;
 }
 
@@ -528,24 +536,30 @@ button.ghost:hover {
   display: none;
 }
 
-.steps > summary::after {
+/* 小三角：收起指向右，展开转 90° 朝下（用边框画的实心三角，比 chevron 更轻） */
+.steps > summary::before {
   content: "";
-  margin-left: auto;
-  width: 5px;
-  height: 5px;
-  border-right: 1.4px solid var(--paper-600);
-  border-bottom: 1.4px solid var(--paper-600);
-  transform: rotate(45deg) translateY(-1px);
+  width: 0;
+  height: 0;
+  flex: none;
+  border-left: 4.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transform-origin: 40% 50%;
   transition: transform 0.16s ease;
 }
 
-.steps[open] > summary::after {
-  transform: rotate(-135deg) translateY(-1px);
+.steps[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.steps > summary:hover {
+  color: var(--paper-300);
 }
 
 .steps-body {
-  padding: 0 11px 8px;
-  color: var(--paper-700);
+  padding: 0 12px 10px 24px;
+  color: var(--paper-600);
   white-space: pre-wrap;
   line-height: 1.7;
   font-family: ui-monospace, Consolas, monospace;
@@ -1098,8 +1112,8 @@ button.ghost:hover {
 }
 
 .tool-chip {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--edge);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--paper-500);
 }
 
