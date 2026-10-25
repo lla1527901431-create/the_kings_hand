@@ -34,17 +34,22 @@ body {
   background: var(--bg-deep);
   color: var(--text-main);
   height: 100vh;
+  /* dvh：iPhone Safari 工具栏收起/展开时跟着变，不会留白或裁切 */
+  height: 100dvh;
   overflow: hidden;
+  /* 防止整页被橡皮筋拖动，滑动手势留给 .app-container */
+  overscroll-behavior: none;
 }
 
 .app-container {
   display: flex;
   height: 100vh;
+  height: 100dvh;
 }
 
 /* ==================== 左侧面板 ==================== */
 .left-panel {
-  width: 40%;
+  width: 46%;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border-soft);
@@ -58,54 +63,19 @@ body {
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* 头部只剩「标题 + 一个齿轮」，原来那一排入口都收进了设置弹窗 */
 .chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: 10px 12px 10px 16px;
   border-bottom: 1px solid var(--border-soft);
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .chat-header h2 {
   font-size: 16px;
   font-weight: 600;
-}
-
-.chat-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-dim);
-  flex-wrap: wrap;
-}
-
-.chat-header-actions .toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-#export-ics-btn,
-#export-email-btn,
-#reset-btn {
-  background: transparent;
-  border: 1px solid var(--border-soft);
-  color: var(--text-dim);
-  padding: 3px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-#export-ics-btn:hover,
-#export-email-btn:hover,
-#reset-btn:hover {
-  border-color: var(--accent);
-  color: var(--text-main);
 }
 
 .chat-history {
@@ -315,7 +285,7 @@ body {
 
 /* ==================== 右侧面板 ==================== */
 .right-panel {
-  width: 60%;
+  width: 54%;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -837,35 +807,6 @@ button.ghost:hover {
   margin-top: 10px;
 }
 
-/* ==================== 账号栏 ==================== */
-.account-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  font-size: 12px;
-}
-
-.user-chip {
-  color: var(--text-dim);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 55%;
-}
-.user-chip:hover {
-  color: var(--accent);
-}
-
-.account-actions {
-  display: flex;
-  gap: 6px;
-  flex: none;
-}
-
 /* ==================== 弹层 ==================== */
 .modal-overlay {
   position: fixed;
@@ -1146,4 +1087,615 @@ button.ghost:hover {
   line-height: 1.7;
   white-space: pre-line;
   max-width: 92%;
+}
+/* ==========================================================================
+   布局层（2026-10 改版）
+   桌面：左右两栏并排；手机：一条 200% 宽的滑动轨道，左右滑动切两屏。
+   这一节只管「位置与尺寸」，配色和动画在 theme.css。
+   ========================================================================== */
+
+/* 轨道容器：桌面直接铺开，两栏并排 */
+.screens {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+/* 手机顶部导航：桌面隐藏（只保留聊天栏自己的标题 + 齿轮） */
+.mobile-nav {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   图标按钮（设置齿轮、关闭叉）：只留尺寸，颜色走主题
+   -------------------------------------------------------------------------- */
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* --------------------------------------------------------------------------
+   等待反馈：3×3 像素波加载器 + 微光标签 + 等宽计时器
+   -------------------------------------------------------------------------- */
+.load-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 1.5px;
+  flex: none;
+}
+
+.pixel-grid .px {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+}
+
+.shimmer-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.elapsed {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 气泡里没有文字时不要那个闪烁光标。
+   两种情况：① 加载中，气泡里只有像素加载器；② 一段"思考"刚被挪进推理过程，
+   文字清空了还没接上新内容。光标单独杵在空气泡里很怪，它只该跟在正在输出的文字后面。
+   注意：theme.css 的 .msg.assistant.streaming::after 特异性是 0,3,0 且后加载，
+   光写 .msg.loading::after（0,2,0）会被它顶掉——所以这里必须带满三个类。 */
+.msg.assistant.streaming.loading::after,
+.msg.assistant.streaming.caret-off::after {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   消息动作行：复制 / 重新生成
+   -------------------------------------------------------------------------- */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  align-self: flex-start;
+  margin: 0 0 2px 2px;
+}
+
+/* 只有图标，所以做成等宽方块；文案在 title / aria-label 里 */
+.msg-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.msg-act svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* --------------------------------------------------------------------------
+   工具引用 chip：单独一行，夹在回答气泡和推理过程之间
+   -------------------------------------------------------------------------- */
+.msg-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-self: flex-start;
+  margin: -2px 0 4px 2px;
+}
+
+.msg-tools .tool-chip {
+  margin: 0;
+}
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 17px;
+  padding: 0 5px;
+  margin: 0 3px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  line-height: 1;
+  vertical-align: 1px;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+/* --------------------------------------------------------------------------
+   页签滑盖：To be confirmed / To be planned 之间平滑滑动
+   -------------------------------------------------------------------------- */
+.task-tabs {
+  position: relative;
+}
+
+.tab-glider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+              width 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.task-tabs .tab-btn,
+.task-tabs .btn-confirm {
+  position: relative;
+  z-index: 1;
+}
+
+/* --------------------------------------------------------------------------
+   设置弹窗
+   -------------------------------------------------------------------------- */
+.settings-box {
+  width: 400px;
+  max-width: 92vw;
+  padding: 0;
+  gap: 0;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 14px 14px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.settings-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.settings-avatar svg {
+  width: 19px;
+  height: 19px;
+}
+
+.settings-who {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-role {
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.settings-group {
+  padding: 4px 0 8px;
+}
+
+.settings-label {
+  padding: 10px 18px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* 行：整体是一条可点区域，靠 .sr-text 里的两行文字承载信息 */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 18px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.settings-row.static {
+  cursor: default;
+}
+
+.sr-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sr-title {
+  font-size: 13.5px;
+}
+
+.sr-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.sr-chev {
+  flex: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* 开关：原生 checkbox 藏起来，用 track + thumb 画 */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  display: block;
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  transition: background 0.18s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(18px);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   手机端（≤860px）：滑动双屏
+   ========================================================================== */
+@media (max-width: 860px) {
+  .app-container {
+    display: block;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .screens {
+    display: flex;
+    width: 200%;
+    height: 100%;
+    transform: translateX(0);
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+    /* 横向留给滑屏，纵向照常滚内容 */
+    touch-action: pan-y;
+  }
+
+  /* 跟手拖动时关掉过渡，否则会黏手 */
+  .screens.dragging {
+    transition: none;
+  }
+
+  .screens.show-calendar {
+    transform: translateX(-50%);
+  }
+
+  .left-panel,
+  .right-panel {
+    flex: 0 0 50%;
+    width: 50%;
+    height: 100%;
+    /* 顶部让开固定导航（含刘海安全区） */
+    padding-top: calc(48px + env(safe-area-inset-top, 0px));
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .left-panel {
+    border-right: 1px solid var(--border-soft);
+  }
+
+  /* 手机上没有横向空间塞标题 + 齿轮，交给顶部导航统一处理 */
+  .chat-header {
+    display: none;
+  }
+
+  .chat-container {
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .task-container {
+    height: auto;
+    flex: 0 0 36%;
+    min-height: 132px;
+  }
+
+  /* Safari 底部：Home 指示条高度兜进内边距 */
+  .task-list {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .chat-input-area {
+    padding: 10px 14px;
+  }
+
+  .chat-history {
+    padding: 12px 14px;
+  }
+
+  .bottom-handle {
+    height: calc(40px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .next-week-overlay {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* ---- 顶部导航 ---- */
+  .mobile-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 12px 6px 14px;
+  }
+
+  .mobile-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-seg {
+    position: relative;
+    display: flex;
+    flex: none;
+    padding: 3px;
+    border-radius: 9px;
+  }
+
+  .seg-glider {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 0;
+    border-radius: 7px;
+    pointer-events: none;
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+                width 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .seg-btn {
+    position: relative;
+    z-index: 1;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 13px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+
+  /* ---- 设置：手机上改成底部抽屉 ---- */
+  #settings-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  /* 底部抽屉：底部是贴着屏幕的，所以下边两个角不能圆
+     （必须带 #settings-modal：theme.css 里 .modal-box 的 14px 圆角后加载，
+       同等特异性会把它顶掉，抽屉就变成四个角都圆的浮块） */
+  #settings-modal .settings-box {
+    width: 100%;
+    max-width: 100%;
+    max-height: 88dvh;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* 其它弹窗在窄屏上收窄留边 */
+  .modal-box.wide {
+    width: 100%;
+  }
+
+  .modal-overlay {
+    padding: 14px;
+  }
+
+  #settings-modal.modal-overlay {
+    padding: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(103%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screens,
+  .tab-glider,
+  .seg-glider,
+  .switch-thumb {
+    transition: none !important;
+  }
+
+  .settings-box {
+    animation: none !important;
+  }
+}
+
+/* 任务列表空态 */
+.task-empty {
+  padding: 14px 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   手机端：周历收紧
+   --------------------------------------------------------------------------
+   为什么每条都带 .right-panel 前缀：
+   theme.css 在 style.css 之后加载，里面 .calendar-days .day-cell 有
+   min-width:48px、.now-line 有 left:60px … 同等特异性下后加载的赢。
+   7 列 × (48+padding) + 60 时间列 = 500+，390 屏上周六周日直接被裁掉。
+   这里靠提高一级特异性（多加 .right-panel）把桌面值压回去。
+   ========================================================================== */
+@media (max-width: 860px) {
+  .right-panel .calendar-days,
+  .right-panel .calendar-body,
+  .right-panel .overlay-days-header,
+  .right-panel .overlay-body {
+    grid-template-columns: 40px repeat(7, 1fr);
+  }
+
+  .right-panel .calendar-days > div {
+    padding: 5px 1px 6px;
+  }
+
+  /* 桌面为了「今天」胶囊好看给了 48px 下限，窄屏必须放开 */
+  .right-panel .calendar-days .day-cell {
+    min-width: 0;
+    padding: 2px 2px;
+    gap: 0;
+    border-radius: 7px;
+  }
+
+  .right-panel .calendar-days .dw {
+    font-size: 9px;
+    letter-spacing: 0.02em;
+  }
+
+  .right-panel .calendar-days .dn {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .right-panel .time-slot {
+    padding-right: 3px;
+    font-size: 10px;
+  }
+
+  /* 时间线起点跟着时间列走，否则会从半空开始 */
+  .right-panel .now-line {
+    left: 40px;
+  }
+
+  .right-panel .now-line span {
+    right: 2px;
+    font-size: 9px;
+    padding: 0 3px;
+  }
+
+  .right-panel .calendar-header-top {
+    padding: 8px 12px 6px;
+  }
+
+  .right-panel .calendar-range {
+    font-size: 12px;
+  }
+
+  /* 事件卡片：窄列里塞两行会糊，只留标题，详情点开看 */
+  .right-panel .event-card {
+    left: 2px;
+    right: 2px;
+    padding: 3px 4px;
+    font-size: 10.5px;
+  }
+
+  .right-panel .event-card .ev-sub {
+    display: none;
+  }
+
+  .right-panel .overlay-day-col {
+    padding: 4px 2px;
+    min-height: 60px;
+  }
+
+  .right-panel .overlay-card {
+    padding: 4px 5px;
+    font-size: 10.5px;
+    white-space: normal;
+    line-height: 1.3;
+  }
+}
+
+@media (max-width: 860px) {
+  /* 50px 宽的列里单行标题只能露 3 个字，允许折行能多看到一截 */
+  .right-panel .event-card .ev-title {
+    white-space: normal;
+    overflow: hidden;
+    line-height: 1.2;
+    max-height: 100%;
+  }
 }

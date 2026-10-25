@@ -17,7 +17,6 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const calendarDays = document.querySelector(".calendar-days");
 const calendarBody = document.getElementById("calendar-body");
 const calendarRange = document.getElementById("calendar-range");
-const calTodayBtn = document.getElementById("cal-today");
 
 // Next Week
 const bottomHandle = document.getElementById("bottom-handle");
@@ -102,8 +101,225 @@ function appendMessage(role, text) {
   div.className = "msg " + role;
   div.textContent = text;
   chatHistory.appendChild(div);
+  scrollChat();
+}
+
+function scrollChat() {
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
+
+// ---- 等待反馈：3×3 像素波加载器 ------------------------------------------
+// 波前按 chevron 排：中间行先亮，上下两行各滞后一格。
+// 单格周期 650ms，而整条波前扫完要 920ms —— 所以画面上始终有两道波在追。
+const PIXEL_WAVE = [90, 180, 270, 0, 90, 180, 90, 180, 270];
+
+function createLoader(label) {
+  const row = document.createElement("div");
+  row.className = "load-row";
+  row.setAttribute("role", "status");
+
+  const grid = document.createElement("span");
+  grid.className = "pixel-grid";
+  grid.setAttribute("aria-hidden", "true");
+  PIXEL_WAVE.forEach((delay) => {
+    const px = document.createElement("span");
+    px.className = "px";
+    px.style.animationDelay = delay + "ms";
+    grid.appendChild(px);
+  });
+
+  const text = document.createElement("span");
+  text.className = "shimmer-label";
+  text.textContent = label || "正在思考";
+
+  const timer = document.createElement("span");
+  timer.className = "elapsed";
+  timer.textContent = "0.0s";
+
+  row.append(grid, text, timer);
+
+  // 计时器：0.1s 粒度；超过一分钟换成 1m 05.2s，和"还要等多久"的直觉一致
+  const started = Date.now();
+  const tick = setInterval(() => {
+    const total = (Date.now() - started) / 1000;
+    timer.textContent = total < 60
+      ? total.toFixed(1) + "s"
+      : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+  }, 100);
+
+  return {
+    el: row,
+    setLabel(value) { text.textContent = value; },
+    stop() { clearInterval(tick); },
+  };
+}
+
+// ---- 工具调用 → 回答里的引用 chip ----------------------------------------
+// 只给"确实查了东西"的工具打标签；emit_tasks / resolve_date 这类内部步骤
+// 已经进了「推理过程」，不必在正文里再打扰一次。
+const TOOL_CHIPS = {
+  get_weather_forecast: { text: "查天气", icon: "cloud" },
+  plan_traffic: { text: "算路程", icon: "route" },
+  search_place: { text: "找地点", icon: "pin" },
+  get_current_location: { text: "定位", icon: "pin" },
+  search_history: { text: "查历史日程", icon: "clock" },
+  update_pending: { text: "改待办", icon: "check" },
+};
+
+const CHIP_ICONS = {
+  cloud: '<path d="M17.5 19a4.5 4.5 0 0 0 .5-8.96A6 6 0 0 0 6.3 9.5 4.5 4.5 0 0 0 6.5 19h11Z"></path>',
+  route: '<circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="5" r="2.5"></circle><path d="M8.5 19h5a4 4 0 0 0 0-8h-3a4 4 0 0 1 0-8h5"></path>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle>',
+  clock: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
+  check: '<path d="M20 6 9 17l-5-5"></path>',
+};
+
+/** 工具 chip 单独一行，挂在气泡和推理过程之间；同一工具只留一个 */
+function appendToolChip(bubble, tool) {
+  const meta = TOOL_CHIPS[tool];
+  if (!meta || !bubble) return;
+
+  // 找现有的 .msg-tools（它只会出现在气泡之后、其它附属块之前）
+  let row = bubble.nextElementSibling;
+  while (row && row.classList.contains("msg-brief")) row = row.nextElementSibling;
+  if (!row || !row.classList.contains("msg-tools")) {
+    row = document.createElement("div");
+    row.className = "msg-tools";
+    insertAfterBubble(bubble, row);
+  }
+  if (Array.from(row.children).some((c) => c.dataset.tool === tool)) return;
+
+  const chip = document.createElement("span");
+  chip.className = "tool-chip";
+  chip.dataset.tool = tool;
+  chip.title = `这一句参考了 ${tool} 的结果`;
+  chip.innerHTML =
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ` +
+    `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+    `${CHIP_ICONS[meta.icon] || ""}</svg><span></span>`;
+  chip.lastElementChild.textContent = meta.text;
+  row.appendChild(chip);
+}
+
+const ICON_COPY =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="9" y="9" width="12" height="12" rx="2.5"></rect>' +
+  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+
+const ICON_RETRY =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"></path></svg>';
+
+// 一条回答的附属块固定按这个顺序排：
+//   气泡 → 工具 chip → 事实小字 → 操作行 → 推理过程
+// 新增/移除块时都走 insertAfterBubble，别的位置不用关心。
+const GROUP_CLASSES = ["msg-tools", "msg-brief", "msg-actions", "steps"];
+
+/** 按 GROUP_CLASSES 的顺序，把 node 插到气泡后面正确的位置 */
+function insertAfterBubble(bubble, node) {
+  const order = GROUP_CLASSES.indexOf(node.classList[0]);
+  let anchor = bubble;
+  let sib = anchor.nextElementSibling;
+  while (sib) {
+    const sibOrder = GROUP_CLASSES.indexOf(sib.classList[0]);
+    if (sibOrder === -1 || sibOrder >= order) break;
+    anchor = sib;
+    sib = sib.nextElementSibling;
+  }
+  anchor.insertAdjacentElement("afterend", node);
+}
+
+/**
+ * 复制文本。
+ * navigator.clipboard 只在安全上下文（https / localhost）里可用，
+ * 局域网用 http 打开时它是 undefined，所以要留一条 execCommand 的老路。
+ */
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.top = "-1000px";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+/** 回答说完后的动作行：复制 / 重新生成。只留图标，文案走 title / aria-label */
+function renderActions(bubble, outputText, prompt) {
+  if (!outputText) return;
+
+  const row = document.createElement("div");
+  row.className = "msg-actions";
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "msg-act";
+  copy.title = "复制";
+  copy.setAttribute("aria-label", "复制");
+  copy.innerHTML = ICON_COPY;
+  copy.addEventListener("click", async () => {
+    let ok = false;
+    try { ok = await copyText(outputText); } catch (e) { ok = false; }
+    if (typeof toast === "function") {
+      toast(ok ? "已复制" : "复制失败", ok ? "ok" : "error", 1600);
+    }
+  });
+
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "msg-act";
+  retry.title = "重新生成";
+  retry.setAttribute("aria-label", "重新生成");
+  retry.innerHTML = ICON_RETRY;
+  retry.addEventListener("click", () => {
+    if (streaming) return;
+    revertToDraft(bubble, prompt);
+  });
+
+  row.append(copy, retry);
+  insertAfterBubble(bubble, row);
+}
+
+/**
+ * 「重新生成」= 回退到发送前：
+ * 删掉这一问一答（气泡、工具 chip、事实小字、动作行、推理过程），
+ * 把原来的输入放回输入框，让用户改完再发 —— 而不是偷偷重发一遍。
+ */
+function revertToDraft(bubble, prompt) {
+  if (!bubble || !bubble.isConnected) return;
+
+  const userMsg = bubble.previousElementSibling;
+  const group = [bubble];
+  let sib = bubble.nextElementSibling;
+  while (sib && GROUP_CLASSES.includes(sib.classList[0])) {
+    group.push(sib);
+    sib = sib.nextElementSibling;
+  }
+  group.forEach((node) => node.remove());
+  if (userMsg && userMsg.classList.contains("user")) userMsg.remove();
+
+  // 对话上下文也回退这一轮，避免"删了还记着"
+  if (chatContext.length && chatContext[chatContext.length - 1].role === "assistant") chatContext.pop();
+  if (chatContext.length && chatContext[chatContext.length - 1].role === "user") chatContext.pop();
+
+  chatInput.value = prompt || "";
+  chatInput.focus();
+  if (typeof autoGrow === "function") autoGrow();
+  scrollChat();
+  if (typeof toast === "function") toast("已回到发送前，修改后可直接再发", "info", 2200);
+}
+
 
 function appendSteps(steps) {
   if (!showSteps.checked) return;
@@ -141,8 +357,30 @@ function appendStreamBubble() {
   const div = document.createElement("div");
   div.className = "msg assistant streaming";
   chatHistory.appendChild(div);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
+  scrollChat();
   return div;
+}
+
+/**
+ * 光标只跟在"正在输出的文字"后面。
+ * 气泡里没字的时候（加载中、或一段思考刚被挪走）加 caret-off 把它关掉，
+ * 免得空气泡里孤零零闪一根紫条。样式见 style.css 的 .caret-off 规则。
+ */
+function syncCaret(bubble) {
+  let hasText = false;
+  bubble.querySelectorAll(".tok").forEach((node) => {
+    if (!hasText && node.textContent.trim()) hasText = true;
+  });
+  bubble.classList.toggle("caret-off", !hasText);
+}
+
+/** 把一段增量渲染成"从模糊里解析出来"的 span（见 theme.css 的 kh-word-in） */
+function appendToken(bubble, text) {
+  const span = document.createElement("span");
+  span.className = "tok";
+  span.textContent = text;
+  bubble.appendChild(span);
+  syncCaret(bubble);
 }
 
 function createReasoningBlock() {
@@ -173,10 +411,17 @@ function appendReasonLine(block, text) {
  * 如果它后面接着调工具，那这段文字是"思考"，挪进推理过程区；
  * 否则（最后一轮）它就是给用户看的回答，留在气泡里。
  * 关掉「显示推理过程」时直接丢弃，避免思考内容混进回答。
+ *
+ * 注意：气泡里除了文字还有工具引用 chip，所以不能直接读 textContent
+ * （那会把 chip 上的"查天气"也算进推理过程），只取 .tok 的文本。
  */
 function flushSegment(bubble, block) {
-  const text = (bubble.textContent || "").trim();
+  const text = Array.from(bubble.querySelectorAll(".tok"))
+    .map((node) => node.textContent)
+    .join("")
+    .trim();
   bubble.textContent = "";
+  syncCaret(bubble);
   if (text) appendReasonLine(block, text);
 }
 
@@ -260,9 +505,12 @@ function renderBrief(bubble, brief) {
   const div = document.createElement("div");
   div.className = "msg-brief";
   div.textContent = lines.join("\n");
-  bubble.insertAdjacentElement("afterend", div);
+  insertAfterBubble(bubble, div);
 }
 
+/**
+ * 发一轮对话。
+ */
 async function send() {
   const text = chatInput.value.trim();
   if (!text || streaming) return;
@@ -272,11 +520,28 @@ async function send() {
   chatInput.value = "";
 
   const bubble = appendStreamBubble();
+  bubble.textContent = "";
+  bubble.classList.add("streaming", "loading");
+  syncCaret(bubble);
+
+  // 首个 token 到达前，气泡里只有这个像素波加载器
+  const loader = createLoader();
+  bubble.appendChild(loader.el);
+
   const reasoning = showSteps.checked ? createReasoningBlock() : null;
   setStreaming(true);
 
   // 只累积"当前这一段"的文字；下一段开始时会被清空
   let output = "";
+  let waiting = true;
+
+  const dropLoader = () => {
+    if (!loader.el.isConnected) return;
+    loader.stop();
+    loader.el.remove();
+    bubble.classList.remove("loading");
+    waiting = false;
+  };
 
   try {
     const location = await browserLocation();
@@ -287,9 +552,10 @@ async function send() {
       location,
     }, async (ev) => {
       if (ev.type === "token") {
+        if (waiting) dropLoader();
         output += ev.text;
-        bubble.textContent = output;
-        chatHistory.scrollTop = chatHistory.scrollHeight;
+        appendToken(bubble, ev.text);
+        scrollChat();
 
       } else if (ev.type === "segment") {
         flushSegment(bubble, reasoning);
@@ -299,13 +565,16 @@ async function send() {
         if (reasoning) reasoning.summary.textContent = `推理过程 · 正在调用 ${ev.tool}…`;
         appendReasonLine(reasoning,
           `↳ 调用 ${ev.tool}，参数 ${JSON.stringify(ev.args)}`);
+        // 查了东西就在正文里留一个小标签，让用户知道这句话的依据从哪来
+        appendToolChip(bubble, ev.tool);
 
       } else if (ev.type === "tasks") {
         // 任务一识别出来就进待确认列表，不用等回答说完
         if (ev.tasks && ev.tasks.length > 0) await addTasks(ev.tasks);
 
       } else if (ev.type === "done") {
-        bubble.classList.remove("streaming");
+        dropLoader();
+        bubble.classList.remove("streaming", "loading");
         if (!output && ev.output) {
           bubble.textContent = ev.output;
           output = ev.output;
@@ -313,6 +582,7 @@ async function send() {
         // agent 可能用 update_pending_task 改过备注/时间，收尾时刷新一次列表
         try { await loadPending(); } catch (e) { console.error("刷新待办失败", e); }
         renderBrief(bubble, ev.brief);
+        renderActions(bubble, output, text);
         if (reasoning) {
           reasoning.summary.textContent =
             `推理过程 · ${(ev.steps || []).length} 步`;
@@ -325,23 +595,27 @@ async function send() {
         }
 
       } else if (ev.type === "error") {
-        bubble.classList.remove("streaming");
+        dropLoader();
+        bubble.classList.remove("streaming", "loading");
         bubble.textContent = "出错了：" + ev.message;
         output = "";
       }
     });
 
     // 流正常结束但没收到 done（例如连接被提前断开）时的兜底
+    dropLoader();
     if (!bubble.textContent && !output) {
       bubble.classList.remove("streaming");
       bubble.textContent = "（没有收到回复）";
     }
   } catch (e) {
-    bubble.classList.remove("streaming");
+    dropLoader();
+    bubble.classList.remove("streaming", "loading");
     bubble.textContent = "出错了：" + e.message;
   } finally {
+    dropLoader();
     setStreaming(false);
-    chatHistory.scrollTop = chatHistory.scrollHeight;
+    scrollChat();
   }
 }
 
@@ -357,8 +631,7 @@ function renderTasks() {
   const tasks = currentTasks();
   if (tasks.length === 0) {
     const empty = document.createElement("div");
-    empty.style.color = "var(--text-dim)";
-    empty.style.fontSize = "12px";
+    empty.className = "task-empty";
     empty.textContent = activeTab === "confirmed" ? "暂无待确认任务" : "暂无待计划任务";
     taskList.appendChild(empty);
     return;
@@ -639,8 +912,6 @@ function scrollToNow() {
   calendarBody.scrollTop = Math.max(0, nowLineTop - viewHeight / 2);
 }
 
-calTodayBtn.addEventListener("click", scrollToNow);
-
 // ==================== Next Week 覆盖层 ====================
 function renderNextWeekOverlay() {
   const monday = getMonday(new Date());
@@ -807,6 +1078,7 @@ tabButtons.forEach((btn) => {
     activeTab = btn.dataset.tab;
     tabButtons.forEach((b) => b.classList.toggle("active", b === btn));
     renderTasks();
+    updateTabGlider();
   });
 });
 
@@ -837,6 +1109,185 @@ modalDeleteBtn.addEventListener("click", deleteEvent);
 eventModal.addEventListener("click", (e) => {
   if (e.target === eventModal) closeEventModal();
 });
+
+// ==================== 滑盖指示器 ====================
+// 用 getBoundingClientRect 相对容器算偏移：offsetLeft 在不同浏览器里参照的边
+// （padding edge / border edge）不一致，容易差几个像素。
+function moveGlider(container, active, glider) {
+  if (!container || !active || !glider) return;
+  const cr = container.getBoundingClientRect();
+  const br = active.getBoundingClientRect();
+  if (!br.width) return;      // 界面还没显示出来，等下次
+  glider.style.width = br.width + "px";
+  glider.style.height = br.height + "px";
+  glider.style.transform = `translate(${br.left - cr.left}px, ${br.top - cr.top}px)`;
+}
+
+const tabGlider = document.getElementById("tab-glider");
+const segGlider = document.getElementById("seg-glider");
+const taskTabsEl = document.querySelector(".task-tabs");
+const mobileSegEl = document.querySelector(".mobile-seg");
+const segButtons = document.querySelectorAll(".seg-btn");
+
+function updateTabGlider() {
+  moveGlider(taskTabsEl, document.querySelector(".task-tabs .tab-btn.active"), tabGlider);
+}
+
+function updateSegGlider() {
+  moveGlider(mobileSegEl, document.querySelector(".mobile-seg .seg-btn.active"), segGlider);
+}
+
+/**
+ * 登录后界面从 display:none 变可见时尺寸才有值 —— 由 session.js 的 startApp
+ * 在 showAppView 之后调一次，否则滑盖会算成 0 宽。
+ */
+function refreshGliders() {
+  updateTabGlider();
+  updateSegGlider();
+}
+
+// ==================== 手机端：左右滑动切换双屏 ====================
+const screensEl = document.getElementById("screens");
+const MOBILE_MQ = window.matchMedia("(max-width: 860px)");
+const isMobileView = () => MOBILE_MQ.matches;
+
+let currentScreen = 0;      // 0 = 对话，1 = 日程
+
+function applyScreen(index) {
+  const next = index >= 1 ? 1 : 0;
+  const changed = next !== currentScreen;
+  currentScreen = next;
+
+  screensEl.classList.remove("dragging");
+  screensEl.classList.toggle("show-calendar", next === 1);
+  screensEl.style.transform = "";     // 交回 class 控制，顺带清掉拖拽残值
+
+  segButtons.forEach((btn) => {
+    const on = Number(btn.dataset.screen) === next;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  updateSegGlider();
+
+  // 切到日历时把周历滚回"现在"附近：手机一屏看不全 24 小时
+  if (changed && next === 1) scrollToNow();
+}
+
+const swipe = {
+  id: null, x0: 0, y0: 0, dx: 0,
+  axis: null, moved: false, start: 0, base: 0,
+};
+let suppressClick = false;
+
+screensEl.addEventListener("pointerdown", (e) => {
+  if (!isMobileView() || swipe.id !== null) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  swipe.id = e.pointerId;
+  swipe.x0 = e.clientX;
+  swipe.y0 = e.clientY;
+  swipe.dx = 0;
+  swipe.axis = null;
+  swipe.moved = false;
+  swipe.start = currentScreen;
+  swipe.base = -currentScreen * window.innerWidth;
+});
+
+screensEl.addEventListener("pointermove", (e) => {
+  if (e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x0;
+  const dy = e.clientY - swipe.y0;
+
+  // 先判方向：9px 以内看不出意图，超过后锁定一次，避免斜向手势来回抢
+  if (swipe.axis === null) {
+    if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
+    swipe.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    if (swipe.axis === "x") {
+      screensEl.classList.add("dragging");
+      try { screensEl.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    }
+  }
+  if (swipe.axis !== "x") return;
+
+  swipe.dx = dx;
+  swipe.moved = Math.abs(dx) > 6;
+
+  // 已经在第一屏还继续往右 / 第二屏继续往左 —— 橡皮筋阻尼：拖得动但不走
+  const atEdge = (currentScreen === 0 && dx > 0) || (currentScreen === 1 && dx < 0);
+  const offset = atEdge ? dx * 0.32 : dx;
+  screensEl.style.transform = `translateX(${swipe.base + offset}px)`;
+});
+
+function endSwipe(e, cancelled) {
+  if (e.pointerId !== swipe.id) return;
+  const dx = swipe.dx;
+  const start = swipe.start;
+  const wasDrag = swipe.axis === "x" && swipe.moved;
+
+  swipe.id = null;
+  swipe.axis = null;
+  swipe.dx = 0;
+
+  if (!wasDrag) return;
+
+  screensEl.classList.remove("dragging");
+  // 拖过之后紧跟着的那一下 click 不该落到按钮上
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 0);
+
+  const threshold = window.innerWidth * 0.22;
+  let target = start;
+  if (!cancelled) {
+    if (dx < -threshold) target = start + 1;
+    else if (dx > threshold) target = start - 1;
+  }
+  target = Math.max(0, Math.min(1, target));
+
+  if (target === start) {
+    screensEl.style.transform = "";     // 没过阈值：回弹
+  } else {
+    applyScreen(target);                // 过阈值：吸附到目标屏
+  }
+}
+
+screensEl.addEventListener("pointerup", (e) => endSwipe(e, false));
+screensEl.addEventListener("pointercancel", (e) => endSwipe(e, true));
+
+// 捕获阶段吃掉拖拽后的误点击
+screensEl.addEventListener("click", (e) => {
+  if (!suppressClick) return;
+  e.stopPropagation();
+  e.preventDefault();
+}, true);
+
+segButtons.forEach((btn) => {
+  btn.addEventListener("click", () => applyScreen(Number(btn.dataset.screen)));
+});
+
+window.addEventListener("resize", () => {
+  updateTabGlider();
+  updateSegGlider();
+});
+
+function onViewportChange() {
+  screensEl.classList.remove("dragging");
+  screensEl.style.transform = "";
+  if (MOBILE_MQ.matches) {
+    screensEl.classList.toggle("show-calendar", currentScreen === 1);
+  } else {
+    // 回到桌面两栏：滑轨位移留着没有意义，清掉免得下次进来是歪的
+    screensEl.classList.remove("show-calendar");
+  }
+  refreshGliders();
+}
+
+// Safari 13 及更早没有 addEventListener，只有旧的 addListener
+if (typeof MOBILE_MQ.addEventListener === "function") {
+  MOBILE_MQ.addEventListener("change", onViewportChange);
+} else if (typeof MOBILE_MQ.addListener === "function") {
+  MOBILE_MQ.addListener(onViewportChange);
+}
+
+refreshGliders();
 
 // ==================== 初始化 ====================
 // 不在这里拉数据：要等登录完成后再拉（见 session.js 的 startApp）。

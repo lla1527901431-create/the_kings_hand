@@ -190,13 +190,18 @@ async function startApp() {
   memoryData = (me && me.memory) || memoryData;
 
   const isAdmin = !!(me && me.is_admin);
-  el("user-chip").textContent = maskPhone((me && me.phone) || "") + (isAdmin ? " · 管理员" : "");
+  el("user-chip").textContent = maskPhone((me && me.phone) || "");
+  el("settings-role").textContent = isAdmin ? "管理员" : "成员";
   el("admin-btn").classList.toggle("hidden", !isAdmin);
   // 全局 Key 由管理员统一配在「访问管理」里，所以这个入口也只对管理员开放
   el("settings-btn").classList.toggle("hidden", !isAdmin);
 
   showAppView();
   appBooted = true;
+
+  // 界面刚从 display:none 变可见，元素的尺寸到这里才有值，
+  // 页签/分段控件的滑盖必须在这一刻之后量，否则会算成 0 宽
+  if (typeof refreshGliders === "function") requestAnimationFrame(refreshGliders);
 
   try {
     await loadPending();
@@ -613,6 +618,19 @@ async function changeAdminPassword() {
 }
 
 // ---------------------------------------------------------------------------
+// 设置弹窗
+// 头部原来那 6 个按钮（思考过程 / 我的记忆 / .ics / 访问管理 / API Key / 退出）
+// 全部收进这里，头部只留一个齿轮。它本身不承载逻辑，只做入口分发。
+// ---------------------------------------------------------------------------
+function openSettings() {
+  el("settings-modal").classList.remove("hidden");
+}
+
+function closeSettings() {
+  el("settings-modal").classList.add("hidden");
+}
+
+// ---------------------------------------------------------------------------
 // 初始化与事件绑定
 // ---------------------------------------------------------------------------
 async function initSession() {
@@ -625,8 +643,25 @@ async function initSession() {
   el("logout-btn").addEventListener("click", doLogout);
   // 「API Key 设置」现在指向同一个管理面板：全局 Key 就在那里配
   el("settings-btn").addEventListener("click", openAdminPanel);
-  el("user-chip").addEventListener("click", () => {
-    if (currentUser && currentUser.is_admin) openAdminPanel();
+
+  // 齿轮（桌面在聊天头部、手机在顶部导航，两处共用同一个 class）
+  document.querySelectorAll(".js-open-settings").forEach((btn) => {
+    btn.addEventListener("click", openSettings);
+  });
+  el("settings-close").addEventListener("click", closeSettings);
+  el("settings-modal").addEventListener("click", (e) => {
+    if (e.target === el("settings-modal")) {
+      closeSettings();
+      return;
+    }
+    // 点了任意一行功能，顺手把设置收起来，避免弹窗叠弹窗
+    const row = e.target.closest(".settings-row");
+    if (row && !row.classList.contains("static")) setTimeout(closeSettings, 0);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !el("settings-modal").classList.contains("hidden")) {
+      closeSettings();
+    }
   });
 
   el("admin-api-key-save").addEventListener("click", saveAdminApiKey);

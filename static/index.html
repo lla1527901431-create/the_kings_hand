@@ -2,14 +2,17 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- viewport-fit=cover：让 env(safe-area-inset-*) 在 iPhone 上真正生效，
+       输入框和底部栏才不会躲到 Safari 工具栏 / Home 指示条底下 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0e">
   <title>The King&rsquo;s Hand · 智能日程助手</title>
   <!-- favicon：先看 ICO（兼容性最好），支持 SVG 的浏览器会用矢量那份 -->
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="apple-touch-icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
-  <!-- 主题层：只负责外观（黑白 / 磨砂玻璃），必须放在 style.css 之后 -->
+  <!-- 主题层：只负责外观（深色 / 薰衣草紫），必须放在 style.css 之后 -->
   <link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
@@ -51,29 +54,43 @@
     </div>
   </div>
 
-  <!-- ==================== 主界面 ==================== -->
+  <!-- ==================== 主界面 ====================
+       桌面：左右两栏（聊天 / 周历）横向排列
+       手机：整体变成 200% 宽的滑动轨道，左右滑动切换两屏 -->
   <div id="app-root" class="app-container hidden">
-    <div class="left-panel">
+
+    <!-- 手机端顶部导航：标题 + 对话/日程分段 + 设置。桌面端隐藏 -->
+    <div class="mobile-nav">
+      <span class="mobile-title">The King&rsquo;s Hand</span>
+      <div class="mobile-seg" role="tablist" aria-label="切换视图">
+        <span class="seg-glider" id="seg-glider" aria-hidden="true"></span>
+        <button class="seg-btn active" type="button" data-screen="0" role="tab">对话</button>
+        <button class="seg-btn" type="button" data-screen="1" role="tab">日程</button>
+      </div>
+      <button class="icon-btn js-open-settings" type="button" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- ---------- 滑动轨道：桌面并排 / 手机左右各一屏 ---------- -->
+    <div id="screens" class="screens">
+
+    <!-- ---------- 第一屏：对话 + 任务 ---------- -->
+    <div class="left-panel" data-screen="0">
       <div class="chat-container">
         <div class="chat-header">
           <h2>The King&rsquo;s Hand</h2>
-          <div class="chat-header-actions">
-            <label class="toggle">
-              <input type="checkbox" id="show-steps" checked>
-              思考过程
-            </label>
-            <button id="memory-btn" title="查看和修改 AI 记住的关于你的信息">我的记忆</button>
-            <button id="export-ics-btn">下载 .ics</button>
-            <button id="reset-btn" title="只清空对话上下文，不动日历和记忆">清空对话</button>
-          </div>
-        </div>
-        <div class="account-bar">
-          <span id="user-chip" class="user-chip" title="点击配置 API Key">…</span>
-          <span class="account-actions">
-            <button id="admin-btn" class="ghost hidden">访问管理</button>
-            <button id="settings-btn" class="ghost hidden">API Key 设置</button>
-            <button id="logout-btn" class="ghost">退出登录</button>
-          </span>
+          <button class="icon-btn js-open-settings" type="button" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
         </div>
         <div id="chat-history" class="chat-history"></div>
         <div class="chat-input-area">
@@ -84,6 +101,7 @@
 
       <div class="task-container">
         <div class="task-tabs">
+          <span class="tab-glider" id="tab-glider" aria-hidden="true"></span>
           <button class="tab-btn active" data-tab="confirmed">To be confirmed</button>
           <button class="tab-btn" data-tab="planned">To be planned</button>
           <button id="confirm-all-btn" class="btn-confirm">全部确认</button>
@@ -92,7 +110,8 @@
       </div>
     </div>
 
-    <div class="right-panel">
+    <!-- ---------- 第二屏：周历 ---------- -->
+    <div class="right-panel" data-screen="1">
       <div id="main-calendar" class="main-calendar">
         <div class="calendar-header">
           <div class="calendar-header-top">
@@ -100,7 +119,6 @@
               <div class="calendar-title">Week View</div>
               <div class="calendar-range" id="calendar-range"></div>
             </div>
-            <button id="cal-today" class="today-btn" title="滚动到当前时间">今天</button>
           </div>
           <div class="calendar-days"></div>
         </div>
@@ -120,6 +138,8 @@
         <div class="overlay-body" id="overlay-body"></div>
       </div>
     </div>
+
+    </div><!-- /#screens -->
   </div>
 
   <!-- ==================== 事件详情 / 编辑 ==================== -->
@@ -151,6 +171,93 @@
       <div class="modal-actions">
         <button id="modal-save">保存</button>
         <button id="modal-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 设置（原来散在头部的 6 个入口都收在这里） ==================== -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-box settings-box">
+      <div class="settings-head">
+        <div class="settings-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </div>
+        <div class="settings-who">
+          <div id="user-chip" class="settings-name">…</div>
+          <div id="settings-role" class="settings-role">已登录</div>
+        </div>
+        <button id="settings-close" class="icon-btn" type="button" aria-label="关闭设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-label">对话</div>
+        <div class="settings-row static">
+          <div class="sr-text">
+            <div class="sr-title">思考过程</div>
+            <div class="sr-sub">显示 AI 的推理步骤与工具调用</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="show-steps" checked>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-label">数据</div>
+        <button class="settings-row" type="button" id="memory-btn">
+          <div class="sr-text">
+            <div class="sr-title">我的记忆</div>
+            <div class="sr-sub">查看和修改 AI 记住的信息</div>
+          </div>
+          <span class="sr-chev" aria-hidden="true">›</span>
+        </button>
+        <button class="settings-row" type="button" id="export-ics-btn">
+          <div class="sr-text">
+            <div class="sr-title">下载 .ics</div>
+            <div class="sr-sub">导出到系统日历</div>
+          </div>
+          <span class="sr-chev" aria-hidden="true">›</span>
+        </button>
+        <button class="settings-row" type="button" id="reset-btn">
+          <div class="sr-text">
+            <div class="sr-title">清空对话</div>
+            <div class="sr-sub">只清上下文，不动日历和记忆</div>
+          </div>
+          <span class="sr-chev" aria-hidden="true">›</span>
+        </button>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-label">账户</div>
+        <button class="settings-row hidden" type="button" id="admin-btn">
+          <div class="sr-text">
+            <div class="sr-title">访问管理</div>
+            <div class="sr-sub">名单、全站 API Key、登录密码</div>
+          </div>
+          <span class="sr-chev" aria-hidden="true">›</span>
+        </button>
+        <button class="settings-row hidden" type="button" id="settings-btn">
+          <div class="sr-text">
+            <div class="sr-title">API Key 设置</div>
+            <div class="sr-sub">DeepSeek 密钥，全员共用</div>
+          </div>
+          <span class="sr-chev" aria-hidden="true">›</span>
+        </button>
+        <button class="settings-row danger" type="button" id="logout-btn">
+          <div class="sr-text">
+            <div class="sr-title">退出登录</div>
+          </div>
+        </button>
       </div>
     </div>
   </div>

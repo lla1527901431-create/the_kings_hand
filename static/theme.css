@@ -241,28 +241,6 @@ button.ghost,
   letter-spacing: 0.01em;
 }
 
-/* 「今天」按钮：薰衣草描边 + 淡填充（不是实心底，避免和主按钮抢注意力） */
-.today-btn {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-}
-
-.today-btn:hover {
-  background: rgba(180, 140, 255, 0.26);
-  border-color: var(--accent);
-  color: var(--accent-2);
-}
-
 /* 表头：星期 + 日期，两行居中 */
 .calendar-days > div {
   display: flex;
@@ -414,10 +392,12 @@ button.ghost,
   background: var(--glass);
 }
 
+/* 选中态的填充由 .tab-glider 那块滑盖负责，这里只留文字颜色 ——
+   两边都填色会叠成两层，滑盖动起来还会露馅 */
 .tab-btn.active {
-  background: var(--glass-strong);
+  background: transparent;
   color: var(--paper-000);
-  border-color: var(--edge);
+  border-color: transparent;
 }
 
 button.ghost {
@@ -663,7 +643,7 @@ button.ghost:hover {
 }
 
 .task-container .tab-btn.active {
-  background: var(--glass-strong);
+  background: transparent;
   color: var(--paper-000);
 }
 
@@ -878,32 +858,277 @@ button.ghost:hover {
 }
 
 /* ==========================================================================
-   账号栏 / 用户标识
+   设置弹窗：账户信息头 + 分组行
+   （原来头部那一排按钮全部收进来，账号栏本身已从界面移除）
    ========================================================================== */
-.account-bar {
-  background: var(--ink-850);
-  backdrop-filter: blur(16px) saturate(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(120%);
+#settings-modal .settings-avatar {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+}
+
+/* 覆盖旧 .user-chip 的胶囊样式 —— 现在它是弹窗里的大号名字，不是标签 */
+#settings-modal .settings-name {
+  color: var(--paper-000);
+  background: none;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#settings-modal .settings-role {
+  color: var(--paper-600);
+}
+
+#settings-modal .settings-label {
+  color: var(--paper-700);
+}
+
+#settings-modal .settings-row {
+  background: transparent;
+  border: 0;
+  color: var(--paper-100);
+  padding: 9px 18px;
+  font-size: 13.5px;
+  border-radius: 0;
+}
+
+#settings-modal .settings-row:hover {
+  background: var(--glass);
+}
+
+#settings-modal .settings-row.static:hover {
+  background: transparent;
+}
+
+#settings-modal .sr-sub {
+  color: var(--paper-600);
+}
+
+#settings-modal .sr-chev {
+  color: var(--paper-700);
+}
+
+#settings-modal .settings-row.danger .sr-title {
+  color: #e7a79c;
+}
+
+#settings-modal .settings-row.danger:hover {
+  background: rgba(224, 97, 79, 0.12);
+}
+
+#settings-modal .settings-group + .settings-group {
+  border-top: 1px solid var(--edge);
+}
+
+/* 开关 */
+.switch-track {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.switch-thumb {
+  background: var(--paper-500);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-track .switch-thumb {
+  background: var(--accent-ink);
+}
+
+/* ==========================================================================
+   图标按钮：设置齿轮 / 关闭叉
+   ========================================================================== */
+.icon-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--paper-600);
+}
+
+.icon-btn:hover {
+  background: var(--glass);
+  border-color: var(--edge);
+  color: var(--paper-000);
+}
+
+.icon-btn:active {
+  background: var(--glass-strong);
+}
+
+/* ==========================================================================
+   页签滑盖
+   ========================================================================== */
+.tab-glider {
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* ==========================================================================
+   手机端顶部导航
+   ========================================================================== */
+.mobile-nav {
+  background: rgba(10, 10, 14, 0.88);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
   border-bottom: 1px solid var(--edge);
 }
 
-.user-chip {
-  color: var(--paper-300);
-  background: var(--glass);
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  backdrop-filter: blur(12px) saturate(130%);
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
-  transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+.mobile-title {
+  color: var(--paper-100);
+  letter-spacing: 0.02em;
 }
 
-.user-chip:hover {
+.mobile-seg {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid var(--edge);
+}
+
+.seg-glider {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.seg-btn {
+  color: var(--paper-600);
+  transition: color 0.16s ease;
+}
+
+.seg-btn.active {
   color: var(--paper-000);
-  background: var(--glass-hover);
-  border-color: var(--edge-bright);
+}
+
+/* ==========================================================================
+   等待反馈：像素波加载器 / 微光标签 / 计时器
+   --------------------------------------------------------------------------
+   ⚠️ 这里出现了渐变 —— 全站「不用渐变」的约定对文字微光开一个口子：
+      它是 background-clip: text 的扫光，不落到任何面板或事件卡片上，
+      不会出现「叠浅色卡片发灰」的问题。
+   ========================================================================== */
+.pixel-grid .px {
+  background: var(--accent);
+  opacity: 0.15;
+  animation: kh-pixel-on 650ms ease-in-out infinite;
+}
+
+@keyframes kh-pixel-on {
+  0%, 68%, 100% {
+    opacity: 0.15;
+  }
+  34% {
+    opacity: 1;
+  }
+}
+
+.shimmer-label {
+  background-image: linear-gradient(
+    90deg,
+    var(--paper-600) 35%,
+    var(--paper-100) 50%,
+    var(--paper-600) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: kh-shimmer 1.4s linear infinite;
+}
+
+@keyframes kh-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.elapsed {
+  color: var(--paper-700);
+}
+
+/* ==========================================================================
+   流式输出：每个增量从模糊里解析出来
+   （只用 opacity + filter，不用 transform —— 内联元素上的 transform 不生效，
+     改成 inline-block 又会破坏跨行折行）
+
+   ⚠️ fill-mode 必须是 backwards 而不是 both：
+      both 会把"结束态"也钉在动画上，万一浏览器没跑这段动画
+     （后台标签页、某些降级渲染），文字就永远停在 opacity:0 看不见了。
+      backwards 只在动画开始前套用起始态，结束后回到元素自身的正常样式。
+   ========================================================================== */
+.msg.assistant .tok {
+  animation: kh-word-in 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes kh-word-in {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* ==========================================================================
+   消息动作行 / 工具引用 chip
+   ========================================================================== */
+.msg-act {
+  color: var(--paper-700);
+}
+
+.msg-act:hover {
+  background: var(--glass);
+  color: var(--paper-100);
+}
+
+.msg-act:active {
+  background: var(--glass-strong);
+}
+
+.tool-chip {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--edge);
+  color: var(--paper-500);
+}
+
+.tool-chip svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.9;
+}
+
+/* ==========================================================================
+   降级：尊重系统的「减少动态效果」
+   网格冻结在暗态、文字不再扫光；计时器照常跳（它是信息，不是装饰）
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .pixel-grid .px {
+    animation: none !important;
+  }
+
+  .shimmer-label {
+    animation: none !important;
+    background: none !important;
+    color: var(--paper-500);
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+  }
+
+  .msg.assistant .tok {
+    animation: none !important;
+  }
 }
 
 /* ==========================================================================
