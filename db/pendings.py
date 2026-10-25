@@ -49,7 +49,7 @@ def add_pending(phone: str, task: dict) -> dict:
     """新增一条。task 需要 id 与 title。
 
     幂等兜底：同一号码下"标题 + 开始时间"完全相同的行不再重复插入，直接返回
-    已有那条并带 `duplicate: True`。前端的 dedup 判定是第一道闸，这里是第二道
+    已有那条并带 `duplicate: True`。模型判重是第一道闸，这里是第二道
     —— 手工添加、请求重放、两个标签页同时操作都会绕过第一道。
     """
     database.init_db()
