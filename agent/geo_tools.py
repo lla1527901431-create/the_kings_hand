@@ -62,15 +62,28 @@ def resolve_current(location: dict | None) -> dict:
         return {"ok": False, "precise": False, "source": "", "lng": None, "lat": None,
                 "city": "", "address": "", "reason": f"定位失败：{e}"}
 
-    if info.get("lng") is None:
-        return {"ok": False, "precise": False, "source": "", "lng": None, "lat": None,
-                "city": "", "address": "",
-                "reason": "拿不到你的位置：浏览器没有授权定位，IP 定位也没结果。"}
+    city = info.get("city") or ""
+    lng, lat = info.get("lng"), info.get("lat")
 
-    detail = amap.regeo(info["lng"], info["lat"])
+    # 高德 IP 定位在 IPv6 / 内网 IP 下常常只给城市、不给 rectangle。
+    # 这时不能直接判失败 —— 拿城市名反查一次坐标，仍然可用（城市级）。
+    if lng is None and city:
+        try:
+            lng, lat = amap.geocode(city)
+            logger.info("IP 定位没给坐标，用城市反查：%s -> %s,%s", city, lng, lat)
+        except amap.AmapError as e:
+            logger.warning("城市反查坐标失败：%s (%s)", city, e)
+
+    if lng is None:
+        return {"ok": False, "precise": False, "source": "", "lng": None, "lat": None,
+                "city": city, "address": "",
+                "reason": (f"定位失败：浏览器没给坐标，IP 也只识别到「{city or '未知地区'}」，"
+                           f"拿不到可用坐标。")}
+
+    detail = amap.regeo(lng, lat)
     return {"ok": True, "precise": False, "source": "网络定位（城市级）",
-            "lng": info["lng"], "lat": info["lat"],
-            "city": info.get("city") or detail.get("city") or "",
+            "lng": lng, "lat": lat,
+            "city": city or detail.get("city") or "",
             "address": detail.get("address") or "", "reason": ""}
 
 
@@ -96,7 +109,7 @@ def make_get_location(location: dict | None):
             return f"定位失败：{e}"
 
         if not info["ok"]:
-            return info["reason"]
+            return f"定位失败：{info['reason']}请直接告诉我你在哪个城市，或允许浏览器定位。"
 
         coord = _coord(info["lng"], info["lat"])
         where = info["address"] or info["city"] or "未知位置"

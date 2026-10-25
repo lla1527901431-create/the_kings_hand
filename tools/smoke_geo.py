@@ -49,6 +49,8 @@ RE_GEO = {**R, "regeocode": {"formatted_address": "广东省珠海市香洲区�
                              "addressComponent": {"city": "珠海市", "district": "香洲区",
                                                   "adcode": "440402"}}}
 IP = {**R, "city": "珠海市", "adcode": "440400", "rectangle": "113.45,22.15;113.65,22.35"}
+# IPv6 / 内网 IP 时高德只给城市、不给 rectangle —— 必须能靠城市名反查坐标
+IP_CITY_ONLY = {**R, "city": "珠海市", "adcode": "440400", "rectangle": ""}
 POI = {**R, "pois": [
     {"name": "中国石化加油站(情侣路站)", "address": "香洲区情侣中路 12 号",
      "location": "113.580,22.275", "distance": "320", "type": "汽车服务"},
@@ -71,7 +73,7 @@ def fake_get(path: str, params: dict) -> dict:
     if path.endswith("/regeo"):
         return RE_GEO
     if path.endswith("/ip"):
-        return IP
+        return IP_CITY_ONLY if params.get("ip") == "6.6.6.6" else IP
     if path.endswith("/geocode/geo"):
         return {**R, "geocodes": [{"location": "113.810,22.640"}]}
     if path.endswith("/place/text"):
@@ -106,6 +108,11 @@ text = geo_tools.make_get_location({"ip": "1.2.3.4"}).invoke({})
 check("标注网络定位", "网络定位" in text, text)
 check("标注城市级精度", "城市级" in text or "城市" in text, text)
 check("包含城市名", "珠海" in text, text)
+
+# 高德 IP 定位只给城市、不给 rectangle（IPv6 / 内网 IP 常见）时，
+# 不能直接判失败，要拿城市名反查坐标
+text = geo_tools.make_get_location({"ip": "6.6.6.6"}).invoke({})
+check("IP 只给城市时用城市反查坐标", "网络定位" in text and "113." in text, text)
 
 print("\n[4] 路线：默认起点 + 未来时间提醒")
 text = geo_tools.make_plan_traffic(BROWSER).invoke({"destination": "宝安机场"})

@@ -187,37 +187,49 @@ function setStreaming(on) {
   chatInput.placeholder = on ? "正在回复…" : "输入任务，例如：明天下午三点开会";
 }
 
-// 位置：浏览器定位，缓存 5 分钟。用户拒绝或超时就返回 null，
-// 服务端会用客户端 IP 做城市级兜底（所以这里失败不影响功能）。
+// 位置：浏览器定位。策略是"能用就用，不能用也不拖慢发消息"：
+//   * 有坐标时缓存 5 分钟；失败只缓存 30 秒，避免一次失败把后续都拖死
+//   * 发消息时最多等 1.5 秒，等不到就先发，后台继续拿，下一条用上
+//   * 拿不到坐标时服务端用客户端 IP 做城市级兜底
 let cachedLocation = { at: 0, value: null };
+let pendingGeo = null;
 
-function browserLocation() {
-  if (Date.now() - cachedLocation.at < 5 * 60 * 1000) {
-    return Promise.resolve(cachedLocation.value);
-  }
-  return new Promise((resolve) => {
+function requestGeolocation() {
+  if (pendingGeo) return pendingGeo;
+  pendingGeo = new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
-    const timer = setTimeout(() => resolve(null), 3000);   // 授权弹窗没点就不等
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        clearTimeout(timer);
         const value = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: Math.round(pos.coords.accuracy || 0),
           source: "browser",
         };
+        console.info("浏览器定位成功：", value);
         cachedLocation = { at: Date.now(), value };
         resolve(value);
       },
-      () => {
-        clearTimeout(timer);
+      (err) => {
+        console.warn("浏览器定位失败：", err && err.code, err && err.message);
         cachedLocation = { at: Date.now(), value: null };
         resolve(null);
       },
-      { enableHighAccuracy: true, timeout: 3000, maximumAge: 60000 }
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
     );
-  });
+  }).finally(() => { pendingGeo = null; });
+  return pendingGeo;
+}
+
+async function browserLocation() {
+  const now = Date.now();
+  const ttl = cachedLocation.value ? 5 * 60 * 1000 : 30 * 1000;
+  if (now - cachedLocation.at < ttl) return cachedLocation.value;
+
+  requestGeolocation();                        // 不 await：先让它在后台跑
+  const timeout = new Promise((r) => setTimeout(() => r("timeout"), 1500));
+  const result = await Promise.race([pendingGeo || Promise.resolve(null), timeout]);
+  return result === "timeout" ? cachedLocation.value : result;
 }
 
 // 消息左下角的"事实小字"：只放工具返回的结构化字段，模型不重复念。

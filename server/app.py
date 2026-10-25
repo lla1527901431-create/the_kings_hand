@@ -580,6 +580,9 @@ def _chat_location(req: ChatRequest, request: Request) -> dict:
     """浏览器定位 + 客户端 IP：定位工具优先用坐标，坐标缺失时用 IP 兜底。"""
     location = dict(req.location or {})
     location["ip"] = _client_ip(request)
+    logger.info("位置输入：browser=%s ip=%s",
+                "有" if location.get("lat") is not None else "无",
+                location["ip"] or "-")
     return location
 
 
