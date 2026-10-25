@@ -1,10 +1,18 @@
-# The King's Hand（本地演示版）
+# The King's Hand
 
-一个用自然语言安排日程的 AI 助手。**数据全部存在本机 SQLite**，不依赖任何云服务。
+一个用自然语言安排日程的 AI 助手。数据存在本地 SQLite，登录用手机号白名单，
+可以单机跑，也可以一键部署成在线演示。
 
-> 这是 `the_kings_hand` 的本地演示版。与原项目的区别：
-> 数据从 Supabase（云端 Postgres）改为本地 SQLite，登录从邮箱+密码改为**手机号白名单**。
-> 原项目一个字节都没动。
+> 想看旧的云端架构（Supabase + 邮箱密码 + Docker/Nginx），见分支 `archive/supabase`。
+
+## 在线演示
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/lla1527901431-create/the_kings_hand)
+
+- 免费实例 **15 分钟无访问会休眠**，下次打开要等 30~50 秒冷启动
+- 文件系统是临时的：重新部署/重启后 `data/app.db` 会重置（演示可接受）
+- 部署后**第一个登录的手机号自动成为管理员**，进「访问管理」配 DeepSeek / 高德 Key
+- 不想被陌生人抢先当管理员？先在本地 `tools/add_phone.py` 配好号码，再连 `data/` 一起部署
 
 ---
 

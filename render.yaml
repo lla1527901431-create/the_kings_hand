@@ -1,0 +1,31 @@
+# ============================================================================
+# Render 部署蓝图（在线演示用）
+# ============================================================================
+# 用法：在 Render 里选 "New → Blueprint"，指向本仓库即可；
+#       或者直接打开 https://render.com/deploy?repo=<仓库地址>
+#
+# 免费档注意事项：
+#   * 15 分钟无访问会休眠，下次访问冷启动约 30~50 秒
+#   * 文件系统是临时的：重新部署/重启后 data/app.db 会重置（演示可接受）
+#   * 第一个访问的手机号会自动成为管理员
+# ============================================================================
+services:
+  - type: web
+    name: kings-hand
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+      # Render 会自动注入 PORT；config.py 靠它判断"托管环境"并绑定 0.0.0.0。
+      # 这两个只是显式写出来，避免以后误删。
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: "INFO"
+      # 公网是 HTTPS，cookie 必须带 Secure
+      - key: COOKIE_SECURE
+        value: "true"
