@@ -161,8 +161,11 @@ sudo docker rm -f tmp-nginx
 ```bash
 docker compose up -d --build
 docker compose logs -f app      # 启动自检会在这里报配置问题
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/health     # 线上只有 {"status":"ok"}
 ```
+
+> `/health` 只在 `DEBUG=true` 时附带表行数；容器里 `DEBUG=false`，所以只返回状态。
+> 想看行数：`docker compose exec app python -c "from db import database;print(database.stats())"`
 
 首次访问 `https://你的域名`：
 
@@ -181,8 +184,8 @@ curl -s http://127.0.0.1:8000/health
 
 ```bash
 # 用 SQLite 自带命令，能在服务运行中安全导出一致快照（不要直接 cp，WAL 会丢数据）
-mkdir -p ~/backup
-sqlite3 ~/kings-hand/data/app.db "VACUUM INTO '/root/backup/app-$(date +%F).db'"
+mkdir -p /root/backup
+sqlite3 /root/kings-hand/data/app.db "VACUUM INTO '/root/backup/app-$(date +%F).db'"
 ```
 
 写进 crontab：
@@ -190,6 +193,17 @@ sqlite3 ~/kings-hand/data/app.db "VACUUM INTO '/root/backup/app-$(date +%F).db'"
 ```bash
 0 3 * * * sqlite3 /root/kings-hand/data/app.db "VACUUM INTO '/root/backup/app-$(date +\%F).db'" && find /root/backup -name 'app-*.db' -mtime +14 -delete
 ```
+
+### 别忘了主密钥
+
+```
+~/kings-hand/data/app.db          ← 数据
+~/kings-hand/data/.secret_key     ← 解密 API Key 的主密钥
+```
+
+**两个一起备份**。只恢复 `app.db` 而不恢复 `.secret_key`，日程和记忆都在，
+但「访问管理」里的 DeepSeek / 高德 Key 会显示未配置（重填一次即可）。
+如果线上是用 `KH_SECRET_KEY` 环境变量注入的，就把它存进你的密码管理器，别跟着文件走。
 
 ### 异地
 
@@ -234,7 +248,7 @@ docker compose start app
 - [ ] `https://你的域名` 能打开登录页
 - [ ] 第一个手机号设置密码后能进入
 - [ ] 「访问管理」里配好全站 DeepSeek Key，能和 AI 正常对话
-- [ ] `/health` 返回 200，且能看到各表行数
+- [ ] `/health` 返回 `{"status":"ok"}`（200）
 - [ ] **`data/app.db` 不在 git 里**（`git status` 干净）
 - [ ] 每日备份 + 异地同步已经跑过一次
 - [ ] 做过一次恢复演练
@@ -245,7 +259,8 @@ docker compose start app
 
 **Q：`database is locked`**
 已经配了 WAL + 5 秒 busy_timeout，正常使用不会出现。出现说明有多个进程在写同一个库
-—— 确认 `WORKERS=1`、没有额外起的实例、没有别的机器挂同一个 `data/` 目录。
+—— 确认只有一个 `app` 容器、没有额外起的实例、没有别的机器挂同一个 `data/` 目录
+（本项目是 `python main.py` 单进程启动，没有 `WORKERS` 这个配置项）。
 
 **Q：能不能开多 worker 提升并发？**
 **不要。** 两个原因：SQLite 只有一个写锁，多进程只会互相排队；登录失败计数存在进程内存里，
@@ -255,7 +270,9 @@ docker compose start app
 `docker compose up -d`（重建）才会重新读 `env_file`，`restart` 不一定。
 
 **Q：登录后刷一下就掉了**
-看 `COOKIE_SECURE`。HTTPS 下应为 `true`；本地 http 调试必须 `false`，否则浏览器拒绝保存 cookie。
+先确认 Nginx 有把 `X-Forwarded-Proto` 传进来（`deploy/nginx.conf` 里已经写了）——
+后端靠它决定 cookie 要不要带 `Secure`。如果代理没传，HTTPS 下 cookie 会缺 `Secure`
+或被浏览器丢弃；本地 http 调试时 `COOKIE_SECURE` 必须为 `false`（默认）。
 
 **Q：管理员忘记密码**
 ```bash
@@ -277,7 +294,7 @@ docker compose exec app python -c "from db import whitelist; whitelist.clear_pas
 
 | 事项 | 说明 |
 |---|---|
-| `data/app.db` | 里面有**明文** DeepSeek Key 和管理员密码哈希，不能进 git、不能随便发人 |
+| `data/app.db` + `data/.secret_key` | 里面是**加密后**的 DeepSeek / 高德 Key、管理员密码哈希和全部日程。库单独泄露拿不到 Key，但**两个一起泄露就等于明文**，不能进 git、不能随便发人 |
 | `.env` | `chmod 600`，不进仓库 |
 | 8000 端口 | 不对外开放 |
 | 登录限流 | 现在只有内存版的 5 次/5 分钟，公网可再加 Nginx 的 `limit_req` |
