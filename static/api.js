@@ -152,12 +152,6 @@ const SessionApi = {
   me: () => api("/me"),
 };
 
-const CredentialsApi = {
-  get: () => api("/credentials"),
-  save: (payload) => api("/credentials", { method: "POST", body: payload }),
-  clear: () => api("/credentials", { method: "DELETE" }),
-};
-
 const MemoryApi = {
   get: () => api("/memory"),
   update: (payload) => api("/memory/update", { method: "POST", body: payload }),

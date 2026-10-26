@@ -130,8 +130,8 @@ def main():
           status == 200 and masked and FAKE_KEY not in json.dumps(res, ensure_ascii=False), masked)
 
     status, res = admin.request("GET", "/me")
-    check("/me 报告 Key 来源为 shared", res.get("deepseek_source") == "shared",
-          res.get("deepseek_source"))
+    check("/me 报告全局 Key 已配置", res.get("deepseek", {}).get("configured") is True,
+          res.get("deepseek"))
 
     print("\n[3] 普通成员：不需要密码，共用同一把 Key")
     status, res = admin.request("POST", "/admin/whitelist/add",
@@ -142,8 +142,9 @@ def main():
     check("成员免密直接登录", status == 200 and res.get("status") == "ok", res)
 
     status, res = member.request("GET", "/me")
-    check("成员也用 shared Key", res.get("deepseek_source") == "shared" and not res.get("is_admin"),
-          res.get("deepseek_source"))
+    check("成员看到的也是同一把全局 Key（但身份不是管理员）",
+          res.get("deepseek", {}).get("configured") is True and not res.get("is_admin"),
+          res.get("deepseek"))
 
     status, res = member.request("GET", "/admin/settings")
     check("成员看不到管理接口", status == 403, res.get("detail"))
@@ -187,7 +188,8 @@ def main():
     check("清空 Key", status == 200 and not res.get("deepseek", {}).get("configured"), res)
 
     status, res = member.request("GET", "/me")
-    check("成员 /me 的 source 变空", res.get("deepseek_source") == "", res.get("deepseek_source"))
+    check("成员 /me 显示 Key 未配置", res.get("deepseek", {}).get("configured") is False,
+          res.get("deepseek"))
 
     status, res = member.request("POST", "/chat", {"message": "明天下午三点开会"})
     check("没 Key 时 /chat 报错并提示联系管理员",
@@ -206,6 +208,8 @@ def main():
     server.should_exit = True
     print(f"\n结果：{passed} 通过 / {failed} 失败")
     print(f"临时数据库留在 {TMP_DIR}（可以删掉）")
+    # CI 靠退出码判成败：有失败必须非 0，否则流水线永远是绿的
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

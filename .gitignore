@@ -12,7 +12,10 @@ env/
 data/*.json
 !data/.gitkeep
 
-# SQLite 数据库 —— 里面有明文 API Key、管理员密码哈希和全部日程，绝不能提交
+# 密钥加密用的主密钥（和 app.db 配套，一起泄露等于没加密）
+data/.secret_key
+
+# SQLite 数据库 —— 里面有加密后的 API Key、管理员密码哈希和全部日程，绝不能提交
 data/*.db
 data/*.db-wal
 data/*.db-shm

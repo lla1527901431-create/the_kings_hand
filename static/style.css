@@ -704,31 +704,6 @@ body {
   margin-bottom: 18px;
 }
 
-.login-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-deep);
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  padding: 4px;
-  margin-bottom: 16px;
-}
-
-.login-tab {
-  flex: 1;
-  padding: 8px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 13px;
-  cursor: pointer;
-}
-.login-tab.active {
-  background: var(--accent);
-  color: #fff;
-}
-
 .login-card label {
   display: block;
   font-size: 12px;
@@ -799,12 +774,6 @@ button.ghost {
 button.ghost:hover {
   color: var(--text-main);
   border-color: var(--accent);
-}
-
-#login-resend {
-  display: block;
-  width: 100%;
-  margin-top: 10px;
 }
 
 /* ==================== 弹层 ==================== */

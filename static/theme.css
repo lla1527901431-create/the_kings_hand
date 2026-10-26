@@ -137,14 +137,12 @@ input[type="checkbox"] {
 .btn-confirm,
 #memory-btn,
 #export-ics-btn,
-#export-email-btn,
 #reset-btn,
 .modal-actions button,
 button.ghost,
 .tab-btn,
 .task-card .task-actions button,
-.login-card button.primary,
-.token-chip {
+.login-card button.primary {
   border-radius: 8px;
 }
 
@@ -184,7 +182,6 @@ button.ghost,
 .calendar-days,
 .overlay-header,
 .overlay-days-header,
-.account-bar,
 .chat-header,
 .chat-input-area,
 .task-tabs {
@@ -206,7 +203,6 @@ button.ghost,
 }
 
 .chat-header,
-.account-bar,
 .task-tabs,
 .chat-input-area,
 .calendar-header,
@@ -358,7 +354,6 @@ button.ghost,
 
 /* 次级按钮：透明底 + 描边，hover 才上色 */
 #export-ics-btn,
-#export-email-btn,
 #reset-btn,
 #memory-btn,
 .modal-actions button {
@@ -372,7 +367,6 @@ button.ghost,
 }
 
 #export-ics-btn:hover,
-#export-email-btn:hover,
 #reset-btn:hover,
 #memory-btn:hover,
 .modal-actions button:hover {
@@ -505,31 +499,43 @@ button.ghost:hover {
   cursor: not-allowed;
 }
 
-/* 思考过程：默认折叠的一条窄条，比回答卡片再暗一档。
-   左边一个小三角表示可展开，展开后转 90° 朝下；标题用 --paper-500，
-   和回答正文拉开层次，但不至于看不见。 */
+/* 思考过程：一条安静的日志行，**不是**一块深色卡片。
+   早先这里铺 --ink-900 实底，比聊天区还黑，整块像挖了个洞，
+   视觉重量压过回答本身（喧宾夺主）——所以：
+   1. 收起时无底、无框，只剩一行灰字 + 小三角；
+   2. 展开时只加一层 2.8% 的白（比底色略亮，不跟底色抢），
+      永远比周围"浅"一点，不再是一个黑窟窿；
+   3. 文字统一 --paper-600，比回答正文低一到两档。 */
 .steps {
   align-self: flex-start;
   max-width: 92%;
   font-size: 12px;
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--ink-900);
+  background: transparent;
   overflow: hidden;
   font-style: normal;
   opacity: 1;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+/* 只有在真正展开时才显得像个容器 */
+.steps[open] {
+  background: rgba(255, 255, 255, 0.028);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .steps > summary {
   list-style: none;
   cursor: pointer;
-  padding: 7px 12px;
+  padding: 5px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--paper-500);
+  color: var(--paper-600);
   font-size: 12px;
   user-select: none;
+  transition: color 0.16s ease;
 }
 
 .steps > summary::-webkit-details-marker {
@@ -554,7 +560,7 @@ button.ghost:hover {
 }
 
 .steps > summary:hover {
-  color: var(--paper-300);
+  color: var(--paper-500);
 }
 
 .steps-body {
@@ -753,21 +759,6 @@ button.ghost:hover {
 .login-sub,
 .login-hint {
   color: var(--paper-600);
-}
-
-.login-tabs {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--edge);
-}
-
-.login-tab {
-  color: var(--paper-500);
-}
-
-.login-tab.active {
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
 }
 
 .login-card label {

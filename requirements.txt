@@ -1,10 +1,10 @@
 # ============================================================================
-# The King's Hand（本地演示版）—— 运行依赖
+# The King's Hand（SQLite 版）—— 运行依赖
 # ============================================================================
-# 与云端版的区别：不再需要 supabase / cryptography
+# 与云端版的区别：不再需要 supabase
 #   * 数据存本地 SQLite（Python 标准库 sqlite3，无需额外依赖）
 #   * 登录用手机号白名单（无需 Auth 服务）
-#   * API Key 明文存 SQLite（按用户要求，无需加密库）
+#   * 管理员配的 API Key 用 AES-256-GCM 加密落库（见 db/crypto.py）
 # ============================================================================
 
 # ---- Web 框架 ----
@@ -13,10 +13,15 @@ uvicorn==0.53.0
 pydantic==2.13.5
 
 # ---- LangChain（Agent 编排）----
-langchain==1.4.0
+# 只保留实际 import 的三包：langchain_classic / langchain_core / langchain_openai。
+# 之前还 pin 了顶层 langchain（它会拖进 langgraph 一整套），
+# 但代码里从来没有 import 过它 —— 已删除，镜像能小几十兆。
 langchain-classic==1.0.8
 langchain-core==1.6.3
 langchain-openai==1.6.2
+
+# ---- 密钥加密（AES-256-GCM）----
+cryptography==50.0.1
 
 # ---- HTTP（天气查询 + 连接池复用）----
 requests==2.34.2

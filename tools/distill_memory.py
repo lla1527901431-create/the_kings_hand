@@ -37,7 +37,7 @@ def main() -> int:
 
     # ⚠️ 必须在设置 DB_PATH 之后再 import，config 在导入时就读环境变量
     from agent import memory_history
-    from db import secrets, whitelist
+    from db import settings, whitelist
 
     if args.all:
         phones = [row["phone"] for row in whitelist.list_all()]
@@ -46,12 +46,15 @@ def main() -> int:
     else:
         parser.error("需要 --phone 或 --all")
 
+    # 全站只有一把 Key（管理员在「访问管理」里配的），跟具体手机号无关
+    key = settings.deepseek_key()
+    if not key:
+        print("[skip] 还没有配置全局 DeepSeek API Key（「访问管理」里填一次）")
+        return 1
+
+    source = "shared"
     failed = 0
     for phone in phones:
-        key, source = secrets.resolve_deepseek_key(phone)
-        if not key:
-            print(f"[skip] {phone}：没有可用的 DeepSeek Key")
-            continue
         try:
             result = memory_history.distill(
                 phone, key, max_buckets=args.max_buckets, dry_run=args.dry_run)

@@ -3,7 +3,6 @@
 // ============================================================================
 
 let currentUser = null;
-let credentialsStatus = { has_deepseek_key: false };
 let deepseekStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
 let amapStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
 let memoryData = { facts: [], preferences: [], last_updated: "" };
@@ -185,7 +184,6 @@ async function startApp() {
   }
 
   currentUser = me;
-  credentialsStatus = (me && me.credentials) || credentialsStatus;
   deepseekStatus = (me && me.deepseek) || deepseekStatus;
   memoryData = (me && me.memory) || memoryData;
 
@@ -239,71 +237,9 @@ async function doLogout() {
   chatHistory.innerHTML = "";
   chatContext = [];
   currentUser = null;
-  credentialsStatus = { has_deepseek_key: false };
   deepseekStatus = { configured: false, masked: "", updated_at: "", updated_by: "" };
   showLoginView();
   el("login-phone").value = "";
-}
-
-// ---------------------------------------------------------------------------
-// API Key 面板
-// ---------------------------------------------------------------------------
-async function loadCredentialsStatus() {
-  try {
-    const r = await Store.credentialStatus();
-    credentialsStatus = r.credentials || credentialsStatus;
-  } catch (e) { /* 沿用已有状态 */ }
-  return credentialsStatus;
-}
-
-function renderCredentialsStatus() {
-  const s = credentialsStatus || {};
-  el("cred-key").placeholder = s.has_deepseek_key ? "已配置（留空表示不修改）" : "sk-...";
-  const parts = [s.has_deepseek_key ? "API Key：已配置 ✓" : "API Key：未配置"];
-  if (s.updated_at) parts.push("更新于 " + s.updated_at);
-  el("cred-state").textContent = parts.join(" · ");
-}
-
-async function openCredentials() {
-  el("cred-key").value = "";
-  await loadCredentialsStatus();
-  renderCredentialsStatus();
-  el("credentials-modal").classList.remove("hidden");
-  el("cred-key").focus();
-}
-
-function closeCredentials() {
-  el("credentials-modal").classList.add("hidden");
-}
-
-async function saveCredentials() {
-  const key = el("cred-key").value.trim();
-  if (!key) {
-    toast("请填写 API Key。", "error");
-    return;
-  }
-  try {
-    const r = await Store.saveCredentials({ deepseek_key: key });
-    credentialsStatus = r.credentials || credentialsStatus;
-    renderCredentialsStatus();
-    el("cred-key").value = "";
-    toast("已保存在本机。", "ok");
-    closeCredentials();
-  } catch (e) {
-    toast("保存失败：" + e.message, "error", 6000);
-  }
-}
-
-async function clearCredentials() {
-  if (!confirm("确定清空已保存的 API Key？清空后需要重新填写。")) return;
-  try {
-    const r = await Store.clearCredentials();
-    credentialsStatus = r.credentials || { has_deepseek_key: false };
-    renderCredentialsStatus();
-    toast("已清空。", "ok");
-  } catch (e) {
-    toast("清空失败：" + e.message, "error");
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -676,13 +612,6 @@ async function initSession() {
     if (e.key === "Enter") { e.preventDefault(); saveAdminAmapKey(); }
   });
   el("admin-pwd-save").addEventListener("click", changeAdminPassword);
-
-  el("cred-save").addEventListener("click", saveCredentials);
-  el("cred-clear").addEventListener("click", clearCredentials);
-  el("cred-close").addEventListener("click", closeCredentials);
-  el("credentials-modal").addEventListener("click", (e) => {
-    if (e.target === el("credentials-modal")) closeCredentials();
-  });
 
   el("memory-btn").addEventListener("click", openMemoryPanel);
   el("memory-close").addEventListener("click", closeMemoryPanel);

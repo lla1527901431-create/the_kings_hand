@@ -337,28 +337,6 @@ function revertToDraft(bubble, prompt) {
 }
 
 
-function appendSteps(steps) {
-  if (!showSteps.checked) return;
-  if (!steps || steps.length === 0) return;
-  // 默认折叠：工具调用日志很长，铺开会把正事顶出屏幕
-  const wrap = document.createElement("details");
-  wrap.className = "steps";
-
-  const summary = document.createElement("summary");
-  summary.textContent = `思考过程 · ${steps.length} 步`;
-  wrap.appendChild(summary);
-
-  const body = document.createElement("div");
-  body.className = "steps-body";
-  body.textContent = steps
-    .map((s) => `↳ 调用 ${s.tool}，参数 ${JSON.stringify(s.args)}`)
-    .join("\n");
-  wrap.appendChild(body);
-
-  chatHistory.appendChild(wrap);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
-}
-
 function handleMemoryCommand(text) {
   if (!/^\/memory$/i.test(text.trim())) return false;
   appendMessage("user", text);

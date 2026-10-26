@@ -85,15 +85,4 @@ const Store = {
   resetChat() {
     return api("/reset", { method: "POST" });
   },
-
-  // ---- 凭据 ----
-  credentialStatus() {
-    return api("/credentials");
-  },
-  saveCredentials(payload) {
-    return api("/credentials", { method: "POST", body: payload });
-  },
-  clearCredentials() {
-    return api("/credentials", { method: "DELETE" });
-  },
 };

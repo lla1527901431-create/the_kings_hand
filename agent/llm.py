@@ -1,10 +1,11 @@
 """LLM 客户端。
 
-按请求构造（每个用户用自己的 DeepSeek Key），不做全局单例 ——
-单例会让所有用户共用同一个 key，而且并发时会互相污染。
+按请求构造，不做全局单例 —— 单例会让所有请求共用同一个客户端，
+而且并发时配置（温度、超时）会互相污染。
 
-key 的来源只有一个：用户在页面上填的那个（存 SQLite）。
-不再有"服务器兜底 key"，避免任何人白嫖服务器额度。
+key 的来源只有一个：**管理员在「访问管理」里配的那把全局 Key**
+（加密存在 app_settings 表里，由调用方解密后传进来）。
+普通成员没有、也不需要自己的 Key。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 
 class CredentialsMissing(RuntimeError):
-    """用户还没填自己的 API Key。"""
+    """全站还没有可用的 DeepSeek Key。"""
 
 
 def _clean_key(key: str | None) -> str:
@@ -30,7 +31,7 @@ def build_llm(deepseek_key: str | None = None) -> ChatOpenAI:
     """对话用的 LLM。temperature=0 让输出稳定。"""
     key = _clean_key(deepseek_key)
     if not key:
-        raise CredentialsMissing("还没有配置 DeepSeek API Key。请点右上角「API Key 设置」填写。")
+        raise CredentialsMissing("还没有配置 DeepSeek API Key，请联系管理员在「访问管理」里配置。")
     return ChatOpenAI(
         model=config.DEEPSEEK_MODEL,
         api_key=key,

@@ -10,7 +10,7 @@
 --   events                          ->  events
 --   pending_tasks                   ->  pending_tasks
 --   memories                        ->  memories
---   user_secrets                    ->  user_secrets（改为明文，见 README 说明）
+--   user_secrets（每用户一把 Key）   ->  取消：改成 app_settings 里的全站一把（加密存）
 --   （无，对话历史在服务端内存）      ->  histories（新增，落库后可多进程）
 -- ============================================================================
 
@@ -112,24 +112,12 @@ CREATE TABLE IF NOT EXISTS histories (
 CREATE INDEX IF NOT EXISTS idx_histories_phone ON histories (phone, id);
 
 -- ---------------------------------------------------------------------------
--- 用户自己填的 API Key
---   ⚠️ 演示版按用户要求**明文存储**，仅适合本机自用；
---      这个库文件被拷走就等于密钥泄露。详见 README 的安全说明。
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS user_secrets (
-    phone        TEXT PRIMARY KEY,
-    deepseek_key TEXT NOT NULL DEFAULT '',
-    smtp_user    TEXT NOT NULL DEFAULT '',
-    smtp_pass    TEXT NOT NULL DEFAULT '',
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-);
-
--- ---------------------------------------------------------------------------
 -- 全站共享设置：由管理员统一配置
---   目前只有 deepseek_api_key —— 所有人调用 AI 都用这一份，
---   普通成员不再需要（也不能）自己填 Key。
---   user_secrets 那张表保留作为兜底：管理员没配全局 Key 时，
---   个人自己填的 Key 仍然能用（见 db/secrets.py 的 resolve_deepseek_key）。
+--   目前两项：deepseek_api_key、amap_key —— 所有人共用管理员配的这一份。
+--
+--   ⚠️ 这两个值是**加密后**存的（AES-256-GCM，见 db/crypto.py），
+--      形如 enc:v1:<base64>，不是明文。直接把库文件拷走拿不到 Key。
+--      （旧版本留下的明文值会在第一次读取时就地加密，不用手工迁移。）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_settings (
     key         TEXT PRIMARY KEY,

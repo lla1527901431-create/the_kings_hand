@@ -11,11 +11,8 @@
 
 from __future__ import annotations
 
-# ⚠️ 注意别名的必要性：本项目有自己的 "secrets" 模块（db/secrets.py，
-# 存用户 API Key），它会遮蔽 Python 标准库的 secrets。所以标准库必须换名导入，
-# 否则 secrets.token_hex(...) 会跑到数据库模块里去（已踩过这个坑）。
 import json
-import secrets as py_secrets
+import secrets
 import threading
 import time
 from datetime import datetime, timedelta
@@ -30,7 +27,7 @@ import config
 from agent import memory_history, runner
 from agent.ics_exporter import build_ics
 from agent.llm import CredentialsMissing
-from db import calendars, database, histories, memories, pendings, secrets, sessions, settings, whitelist
+from db import calendars, database, histories, memories, pendings, sessions, settings, whitelist
 from server.auth import (
     CurrentUser,
     admin_user,
@@ -86,7 +83,7 @@ def _clear_login_fails(phone: str) -> None:
 # ---------------------------------------------------------------------------
 @app.middleware("http")
 async def request_context(request: Request, call_next):
-    set_request_id(py_secrets.token_hex(3))
+    set_request_id(secrets.token_hex(3))
     set_user_id("-")
     quiet = request.url.path.startswith("/static") or request.url.path == "/health"
     started = time.perf_counter()
@@ -141,12 +138,6 @@ class ChatRequest(BaseModel):
     # 前端浏览器定位（WGS-84）：{"lat": 22.27, "lng": 113.57, "accuracy": 35}
     # 没给的话服务端用客户端 IP 做城市级兜底
     location: dict = {}
-
-
-class CredentialsRequest(BaseModel):
-    deepseek_key: str = ""
-    smtp_user: str = ""
-    smtp_pass: str = ""
 
 
 class AddEventRequest(BaseModel):
@@ -313,7 +304,7 @@ def login(req: LoginRequest, request: Request, response: Response,
     # 到这里才算认证通过，签发会话
     whitelist.touch_login(phone)
     token = sessions.issue(phone)
-    csrf = py_secrets.token_urlsafe(24)
+    csrf = secrets.token_urlsafe(24)
     max_age = config.SESSION_DAYS * 24 * 3600
     set_session_cookies(response, token, csrf, max_age, request)
 
@@ -367,46 +358,14 @@ def session_info(request: Request):
 
 @app.get("/me")
 def me(user: CurrentUser = Depends(current_user)):
-    """前端初始化用：我是谁、能不能管名单、AI 服务配好了没。
-
-    deepseek.source 说明这次对话会用到哪把 Key：
-        "shared" 管理员统一配置的（优先）
-        "own"    这用户自己以前填的（兜底）
-    """
-    key, source = secrets.resolve_deepseek_key(user.phone)
+    """前端初始化用：我是谁、能不能管名单、AI 服务配好了没。"""
     return {
         "phone": user.phone,
         "is_admin": user.is_admin,
-        "credentials": secrets.status(user.phone),
         "deepseek": settings.deepseek_status(),
-        "deepseek_source": source if key else "",
         "amap": settings.amap_status(),
         "memory": memories.load_memory(user.phone),
     }
-
-
-# ---------------------------------------------------------------------------
-# 用户 API Key
-# ---------------------------------------------------------------------------
-@app.get("/credentials")
-def get_credentials(user: CurrentUser = Depends(current_user)):
-    return {"credentials": secrets.status(user.phone)}
-
-
-@app.post("/credentials")
-def save_credentials(req: CredentialsRequest, user: CurrentUser = Depends(current_user),
-                     _: None = Depends(csrf_protect)):
-    if not (req.deepseek_key or req.smtp_user or req.smtp_pass):
-        raise HTTPException(status_code=400, detail="没有填写任何内容。")
-    return {"status": "ok", "credentials": secrets.save(
-        user.phone, req.deepseek_key, req.smtp_user, req.smtp_pass)}
-
-
-@app.delete("/credentials")
-def delete_credentials(user: CurrentUser = Depends(current_user),
-                       _: None = Depends(csrf_protect)):
-    secrets.clear(user.phone)
-    return {"status": "ok", "credentials": secrets.status(user.phone)}
 
 
 # ---------------------------------------------------------------------------
@@ -470,11 +429,11 @@ def admin_set_admin(req: SetAdminRequest, admin: CurrentUser = Depends(admin_use
 
 
 # ---------------------------------------------------------------------------
-# 全站 DeepSeek API Key（仅管理员）
+# 全站 AI Key（仅管理员）
 # ---------------------------------------------------------------------------
-# 演示版的定位：管理员配一次，所有人都用这一把。
-# 普通成员因此不需要（也看不到）自己的 Key 入口；
-# 个人以前填的 Key 仍然保留在 user_secrets 里，作为"管理员还没配"时的兜底。
+# 全站只有这一把：管理员配一次，所有人的对话都用它。
+# 普通成员没有、也看不到 Key 入口。
+# 两把 Key（DeepSeek / 高德）都是 AES-256-GCM 加密后入库的，见 db/crypto.py。
 class ApiKeyRequest(BaseModel):
     api_key: str = ""
 
@@ -592,13 +551,12 @@ def _prepare_chat(user: CurrentUser, req: ChatRequest) -> tuple[str, str, dict, 
     if not message:
         raise HTTPException(status_code=400, detail="消息不能为空。")
 
-    key, source = secrets.resolve_deepseek_key(user.phone)
+    key = settings.deepseek_key()
     if not key:
         hint = ("请在右上角「访问管理」里配置全局 DeepSeek API Key。"
                 if user.is_admin else "请联系管理员在「访问管理」里配置 DeepSeek API Key。")
         raise HTTPException(status_code=400, detail="还没有配置 DeepSeek API Key。" + hint)
 
-    logger.info("本次对话使用的 Key 来源：%s", source)
     return (message, key,
             memories.load_memory(user.phone),
             histories.recent(user.phone) or req.history)
@@ -620,7 +578,7 @@ def _distill_expired_events(phone: str) -> None:
         if settings.get(mark) == today:
             return
 
-        key, _source = secrets.resolve_deepseek_key(phone)
+        key = settings.deepseek_key()
         if not key:
             logger.info("跳过过期日程沉淀：%s 还没有可用的 DeepSeek Key", phone)
             return
@@ -734,12 +692,10 @@ async def chat_stream_endpoint(req: ChatRequest, request: Request,
 
         histories.append(user.phone, message, output)
         if output:
-            # 蒸馏放到响应结束之后，别让用户在"记忆更新中"上多等几秒
-            if background is not None:
-                background.add_task(
-                    _distill_in_background, user.phone, message, output, memory, key)
-            else:                      # 理论上不会发生，兜一下免得整段崩掉
-                _distill_in_background(user.phone, message, output, memory, key)
+            # 蒸馏放到响应结束之后，别让用户在"记忆更新中"上多等几秒。
+            # background 由 FastAPI 注入，永远是实例，不需要判空。
+            background.add_task(
+                _distill_in_background, user.phone, message, output, memory, key)
 
     return StreamingResponse(
         generate(),
