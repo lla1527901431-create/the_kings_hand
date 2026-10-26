@@ -5,7 +5,10 @@
     * 登录用手机号白名单，不用邮箱 + Auth 服务
       —— 管理员额外需要密码，密码在 db/whitelist.py 里用 PBKDF2 存
     * 因此这里几乎没有敏感配置 —— 唯一的密钥是管理员在页面上
-      统一配置的那把 DeepSeek API Key（存在 db/app_settings 表里）
+      统一配置的那把 DeepSeek API Key（存在 app_settings 表里，
+      **AES-256-GCM 加密后**再落库，见 db/crypto.py）
+    * 解密的**主密钥**优先取环境变量 KH_SECRET_KEY，没设则自动生成到
+      data/.secret_key（0600）。它不在本文件里，也不算"配置项"。
 
 所有模块都从这里取配置，不要在别处直接 os.getenv。
 """
@@ -55,9 +58,8 @@ COOKIE_SECURE = as_bool(get_env("COOKIE_SECURE", "false"))
 # 登录会话有效期（天）。白名单登录不需要 refresh 机制，过期就重新输手机号。
 SESSION_DAYS = int(get_env("SESSION_DAYS", "30"))
 
-# 对话上下文：保留最近多少轮 + 多久没活动就回收
+# 对话上下文：每人保留最近多少条消息（一问一答算 2 条），写入时裁掉更早的
 RECENT_HISTORY_MAX = int(get_env("RECENT_HISTORY_MAX", "10"))
-RECENT_HISTORY_IDLE_MINUTES = int(get_env("RECENT_HISTORY_IDLE_MINUTES", "120"))
 
 # ---------------------------------------------------------------------------
 # DeepSeek（模型与地址是服务端配置；key 由用户自己在页面上填）
@@ -76,6 +78,22 @@ def startup_check() -> list[str]:
         raise RuntimeError(f"无法创建数据目录：{DATA_DIR}")
 
     warnings.append(f"数据库文件：{DB_PATH}")
+
+    # 密钥加密：主密钥能不能用，以及用的是哪一把（只显示指纹，不显示密钥本身）
+    try:
+        from db import crypto
+
+        ok, detail = crypto.self_test()
+        if ok:
+            warnings.append(f"密钥加密就绪：{detail}")
+            if crypto.source() == "file":
+                warnings.append(
+                    f"主密钥存在文件里（{crypto.KEY_FILE_NAME}）。备份 data/ 时要连它一起备份，"
+                    f"否则库里的密文解不开；多人部署建议改用环境变量 {crypto.KEY_ENV} 注入。")
+        else:
+            warnings.append(f"⚠️ 密钥加密不可用：{detail}（API Key 将无法保存/读取）")
+    except Exception as e:                              # noqa: BLE001
+        warnings.append(f"⚠️ 加密模块初始化失败：{type(e).__name__}: {e}")
 
     # 手机号白名单为空时提示怎么启动（这是最容易卡住的第一步）
     try:

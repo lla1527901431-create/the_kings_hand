@@ -152,13 +152,6 @@ def _parse_time(text: str) -> tuple[int, int] | None:
     return hour, minute
 
 
-def _fmt_time(dt: datetime, base: date) -> str:
-    """同一天只写 HH:MM，跨天时带上完整日期。"""
-    if dt.date() == base:
-        return dt.strftime("%H:%M")
-    return dt.strftime("%Y-%m-%d %H:%M")
-
-
 def _resolve_datetime(
     date_str: str = "",
     time_str: str = "",

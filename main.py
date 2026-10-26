@@ -7,13 +7,7 @@
 环境变量见 .env.example。
 """
 
-import os
-
 import uvicorn
-
-
-def _as_bool(value: str) -> bool:
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def main() -> None:

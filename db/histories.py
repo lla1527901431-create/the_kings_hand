@@ -58,21 +58,3 @@ def clear(phone: str) -> int:
     """清空某人的对话上下文（不影响日历和记忆）。"""
     database.init_db()
     return database.execute("DELETE FROM histories WHERE phone = ?", (phone,))
-
-
-def size(phone: str) -> int:
-    row = database.query_one("SELECT COUNT(*) AS n FROM histories WHERE phone = ?", (phone,))
-    return row["n"] if row else 0
-
-
-def cleanup_idle(minutes: int | None = None) -> int:
-    """删掉长时间没说话的对话记录。
-
-    因为已经按条数裁剪，这个清理主要是防止"很多用户都留着一份"导致体积增长。
-    """
-    database.init_db()
-    minutes = minutes if minutes is not None else config.RECENT_HISTORY_IDLE_MINUTES
-    return database.execute(
-        "DELETE FROM histories WHERE created_at < datetime('now', 'localtime', ?)",
-        (f"-{minutes} minutes",),
-    )

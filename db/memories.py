@@ -143,12 +143,6 @@ def upsert_history(conn, phone: str, entries: list[dict]) -> int:
     return len(merged)
 
 
-def merge_history(phone: str, entries: list[dict]) -> int:
-    """独立事务版的 upsert_history（给脚本/测试用）。"""
-    with database.transaction() as conn:
-        return upsert_history(conn, phone, entries)
-
-
 def load_history(phone: str) -> list[dict]:
     row = database.query_one("SELECT history FROM memories WHERE phone = ?", (phone,))
     return _loads(row["history"]) if row else []

@@ -217,18 +217,3 @@ def clear_password(phone: str) -> None:
         "UPDATE whitelist SET password_hash = '', password_set_at = NULL WHERE phone = ?",
         (phone,),
     )
-
-
-def ensure_first_admin(phone: str) -> bool:
-    """如果白名单里还没有管理员，把这个人设成管理员。返回是否新设了。
-
-    这是"首个登录者自动成为管理员"的实现。用一条带条件的 UPDATE 完成，
-    避免"检查-再写入"之间的竞态。
-    """
-    database.init_db()
-    n = database.execute(
-        "UPDATE whitelist SET is_admin = 1 WHERE phone = ? AND NOT EXISTS "
-        "(SELECT 1 FROM whitelist AS w2 WHERE w2.is_admin = 1)",
-        (phone,),
-    )
-    return n > 0
